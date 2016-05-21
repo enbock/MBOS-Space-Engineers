@@ -1,13 +1,11 @@
-﻿const String VERSION = "0.3.1";
+﻿const String VERSION = "0.3.2";
 const String DATA_FORMAT = "0.3";
-
-// The Block inventory.
-List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
 /**
 * Key value memory.
 */
-public class ConfigValue { 
+public class ConfigValue
+{ 
     public String Key; 
     public String Value; 
      
@@ -52,19 +50,22 @@ List<ConfigValue> Config = new List<ConfigValue>();
 /**
 * Main program ;)
 */
-public void Main(String argument) { 
+public void Main(String argument)
+{ 
     LoadConfigFromConfigLCD();
     StopTimer();
     LoadModules();
     ReadArgument(argument); 
     
     CountRun(); 
+    
+    OutputToConsole();
     InvokeModules();
+    
     UpdateModulesConfig();
     
     OutputToConfigLcd();
     OutputDebugToConfigLcd();
-    OutputToConsole();
     
     StartTimer();
 } 
@@ -72,7 +73,8 @@ public void Main(String argument) {
 /**
 * Load storage into config memory.
 */
-public Program() { 
+public Program()
+{ 
     if (Storage.Length > 0) { 
         Config.Clear(); 
         String[] configs = Storage.Split('\n'); 
@@ -247,6 +249,7 @@ public void OutputToConsole()
         + "VERSION=" + VERSION + "\n"
         + "Count=" + GetConfig("RunCount").Value + "\n"
         + "ConfigLCD=" + GetConfig("ConfigLCD").Value + "\n"
+        + "RegisteredModules=" + Modules.Count + "\n"
     );
 }
 
@@ -254,7 +257,8 @@ public void OutputToConsole()
 /**
 * Load storage into config memory.
 */
-public void LoadConfigFromConfigLCD() { 
+public void LoadConfigFromConfigLCD()
+{ 
     IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
     if(lcd == null) {
         return;
@@ -374,13 +378,12 @@ public void InvokeModules()
 */
 public IMyTerminalBlock GetBlock(string name, int gridNumber)
 {
-    if (Blocks.Count == 0) {
-        // Load blocks
-        GridTerminalSystem.GetBlocks(Blocks);
-    }
+    // The Block inventory.
+    List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
+    GridTerminalSystem.SearchBlocksOfName(name, blocks);
     
-    for(int i = 0; i < Blocks.Count; i++) {
-        IMyTerminalBlock block = Blocks[i];
+    for(int i = 0; i < blocks.Count; i++) {
+        IMyTerminalBlock block = blocks[i];
         if (block.NumberInGrid == gridNumber && block.CustomName == name) {
             return block;
         }

@@ -16,7 +16,7 @@ Constructor of `Module` object.
 #### ToString()
 Returns the `BlockId` of the module.
 
-## findCores()
+## FindCores()
 Returns a list of all found cores as a module list.
 
 Parameters: _none_
