@@ -4,7 +4,7 @@ The core module which handles the execution rythm and stores the configuration.
 ## Installation
 ## Requirements
 * Timer Block
- * Setup Programable Block with `run` action and **empty** argument.
+ * Setup Programmable Block with `run` action and **empty** argument.
 * LCD Block
 
 ## The first run
@@ -57,10 +57,11 @@ Request a register of a module with `BlockId` on the Core.
 
 ### Registration feedback
 
-    API://Registered/<BlockId>
+    API://Registered/<BlockId>/<LCDId>
      
 Direction: Core to Module 
-Response of register request. `BlockId` is the Core identifier.. 
+Response of register request. `BlockId` is the Core identifier. The
+last value `LCDId` is the config LCD identifier. 
 
 ### Remove a module
 
@@ -88,3 +89,14 @@ Time based invoke of the module.
 
 * `BlockId` is the Core which invokes. 
 * `RunCount` is the loop counter number of Core.
+
+## Get ConfigLCD Id
+
+    API://GetConfigLCD/<BlockId>
+    
+`BlockId` requested the id of the Config LCD Panel.
+The core answers with:
+
+    API://ConfigLCD/<LCDId>/<BlockId>
+    
+The `LCDId` is the LCD block identifier. The `BlockId` is the core identifier.

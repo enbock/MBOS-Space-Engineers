@@ -1,4 +1,4 @@
-﻿const String VERSION = "0.3.2";
+﻿const String VERSION = "0.4.0";
 const String DATA_FORMAT = "0.3";
 
 /**
@@ -46,26 +46,49 @@ List<Module> Modules = new List<Module>();
 
 // The central configuration.
 List<ConfigValue> Config = new List<ConfigValue>(); 
+
+public class Call {
+    public IMyProgrammableBlock Block;
+    public String Argument;
+    
+    public Call(IMyProgrammableBlock block, String argument) {
+        Block = block;
+        Argument = argument;
+    }
+    
+    public bool Run()
+    {
+        return Block.TryRun(Argument);
+    }
+}
+List<Call> CallStack = new List<Call>();
  
+String lastArg = "";
 /**
-* Main program ;)
+* Program logic.
 */
-public void Main(String argument)
-{ 
+public void Main(string argument)
+{
+    //Echo("> " + lastArg);
+    //Echo("> " + argument);
+    lastArg = argument;
+    
     LoadConfigFromConfigLCD();
     StopTimer();
-    LoadModules();
+    if(Modules.Count == 0) LoadModules();
+    
+    InvokeCalls();
+    
     ReadArgument(argument); 
+    UpdateModulesConfig();
     
     CountRun(); 
     
     OutputToConsole();
-    InvokeModules();
-    
-    UpdateModulesConfig();
-    
     OutputToConfigLcd();
     OutputDebugToConfigLcd();
+    
+    InvokeModules();
     
     StartTimer();
 } 
@@ -222,15 +245,15 @@ public void OutputDebugToConfigLcd()
     }
     
     string output = " [MBOS]"
-        + " Core v" + VERSION 
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
         + " [" + GetConfig("RunCount").Value + "]" 
         + "\n\n"
     ;
     
-    output += "Registered Modules:\n";
+    output += "[Core v" + VERSION + "] " 
+        + "Registered Modules:\n";
     foreach(Module mod in Modules) {
-        output += "    " + mod.ToString();
+        output += "    " + mod.ToString() + "\n";
     }
     output += "\n";
     
@@ -244,11 +267,13 @@ public void OutputDebugToConfigLcd()
 */
 public void OutputToConsole()
 {
+    IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+
     Echo(
         "MODULE=Core\n"
         + "VERSION=" + VERSION + "\n"
         + "Count=" + GetConfig("RunCount").Value + "\n"
-        + "ConfigLCD=" + GetConfig("ConfigLCD").Value + "\n"
+        + (lcd != null ? "ConfigLCD=" + GetId(lcd) + "\n" : "" )
         + "RegisteredModules=" + Modules.Count + "\n"
     );
 }
@@ -315,19 +340,49 @@ public void ApplyAPICommunication(String apiInput)
 {
     string[] stack = apiInput.Replace("API://", "").Split('/');
     Module receiver = null;
+    IMyTerminalBlock block;
+    IMyTextPanel lcd;
     
     switch(stack[0]) {
         case "RegisterModule":
             receiver = RegisterModule(stack[1]);
             if (receiver != null) {
-                receiver.Block.TryRun("API://Registered/"+GetMyId());
+                lcd = GridTerminalSystem.GetBlockWithName(
+                    GetConfig("ConfigLCD").Value
+                ) as IMyTextPanel; 
+                CallStack.Add(
+                    new Call(
+                        receiver.Block, 
+                        "API://Registered/" + GetMyId() + "/"
+                        + (lcd != null ? GetId(lcd) : "")
+                    )
+                );
             }
             break;
         case "RemoveModule":
             receiver = RemoveModule(stack[1]);
             if (receiver != null) {
-                receiver.Block.TryRun("API://Removed/"+GetMyId());
+                CallStack.Add(
+                    new Call(receiver.Block, "API://Removed/" + GetMyId())
+                );
             }
+            break;
+        case "GetConfigLCD":
+            block = GetBlock(stack[1]);
+            lcd = GridTerminalSystem.GetBlockWithName(
+                GetConfig("ConfigLCD").Value
+            ) as IMyTextPanel; 
+            if (block is IMyProgrammableBlock && lcd != null) {
+                CallStack.Add(
+                    new Call(
+                        (IMyProgrammableBlock) block
+                        , "API://ConfigLCD/" + GetId(lcd) + "/" + GetMyId()
+                    )
+                );
+            }
+            break;
+        default:
+            Echo("Unknown request: " + apiInput);
             break;
     }
 }
@@ -358,6 +413,19 @@ public Module RemoveModule(String blockId)
         }
     }
     return null;
+}
+
+/**
+* Run calls from stack.
+*/
+public void InvokeCalls()
+{
+    Call[] calls = CallStack.ToArray();
+    CallStack.Clear();
+    foreach(Call call in calls) 
+    {
+        call.Run();
+    } 
 }
 
 /**
@@ -407,5 +475,13 @@ public IMyTerminalBlock GetBlock(string blockId)
 */
 public string GetMyId()
 {
-    return Me.NumberInGrid.ToString() + "|" + Me.CustomName;
+    return GetId(Me);
+}
+
+/**
+* Generate id.
+*/
+public string GetId(IMyTerminalBlock block)
+{
+    return block.NumberInGrid.ToString() + "|" + block.CustomName;
 }
