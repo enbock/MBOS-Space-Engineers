@@ -64,6 +64,9 @@ The whole MBOS system used API URN in follow syntax:
 Syntax of `BlockId`:
 
     <Number in Grid>|<Type of Block>
+    
+The block identifier is independend from the `CustomName`. So the block
+can be renamed without loosing the connection to the modules.
 
 ## Module Registration System
 ### Register a module
