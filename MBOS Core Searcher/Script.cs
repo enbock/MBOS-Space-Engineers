@@ -10,7 +10,7 @@ public class Module {
     }
     public String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.CustomName;
+        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     } 
 }
 
@@ -47,16 +47,17 @@ public IMyTerminalBlock GetBlock(string id)
 {
     string[] parts = id.Split('|');
     if (parts.Length != 2) return null;
-    string name = parts[1].Trim();
+    string subTypeId = parts[1].Trim();
     int gridNumber = Int32.Parse(parts[0].Trim());
     
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    GridTerminalSystem.SearchBlocksOfName(name, blocks);
+    GridTerminalSystem.GetBlocks(blocks);
     
     for(int i = 0; i < blocks.Count; i++) {
         if (
             blocks[i].NumberInGrid == gridNumber 
-            && blocks[i].CustomName == name
+            && blocks[i].BlockDefinition.SubtypeId == subTypeId
+            && blocks[i].CubeGrid  == Me.CubeGrid
         ) {
             return blocks[i];
         }
@@ -98,5 +99,5 @@ public List<Module> FindCores() {
 */
 public string GetId(IMyTerminalBlock block)
 {
-    return block.NumberInGrid.ToString() + "|" + block.CustomName;
+    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
 }

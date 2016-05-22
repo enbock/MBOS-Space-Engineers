@@ -1,4 +1,4 @@
-﻿const String VERSION = "0.1.0";
+﻿const String VERSION = "0.2.0";
 const String DATA_FORMAT = "0.1";
 
 /**
@@ -16,10 +16,13 @@ public class Module {
     
     public String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.CustomName;
+        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     } 
 }
 
+/**
+* Event observer list.
+*/
 public class EventList
 { 
     public String Key; 
@@ -31,6 +34,10 @@ public class EventList
         Observers = new List<Module>(); 
     }
 }
+
+/**
+* Call request.
+*/
 public class Call {
     public IMyProgrammableBlock Block;
     public String Argument;
@@ -46,10 +53,18 @@ public class Call {
     }
 }
 
+// List of calls for next round.
 List<Call> CallStack = new List<Call>();
+// List of registered cores.
 List<Module> Registered = new List<Module>();
+// List of registered events.
 List<EventList> RegisteredEvents = new List<EventList>(); 
+// Block Buffer
+List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
+/**
+* Storage loader.
+*/
 public Program()
 {
     IMyTerminalBlock module; 
@@ -85,6 +100,9 @@ public Program()
     } 
 }
 
+/**
+* Store data.
+*/
 public void Save()
 {
     List<String> modules;
@@ -102,7 +120,7 @@ public void Save()
         + list
     ;
 }
-
+// Format Cores to storable form (serialize).
 public String FormatRegisteredCores()
 {
     List<String> modules = new List<String>();
@@ -123,8 +141,13 @@ public void Main(string argument)
     //Echo("> " + argument);
     lastArg = argument;
     
+    // clear buffer
+    Blocks.Clear();
+    
+    // Apply buffered calls
     InvokeCalls();
     
+    // Appply API interaction
     if (argument.IndexOf("API://") == 0) {
         ApplyAPICommunication(argument);
     } else {
@@ -133,13 +156,16 @@ public void Main(string argument)
         }
     }
     
+    // Autosearch for cores.
     if (argument != "UNINSTALL"  && Registered.Count == 0) {
         RegisterOnCores();
     }
     
+    // Outputs
     Echo(
         "MODULE=Bus\n"
         + "VERSION=" + VERSION + "\n"
+        + "ID=" + GetId(Me) + "\n"
         + "CORES=" +  FormatRegisteredCores() + "\n"
         + "RegisteredEvents=" + RegisteredEvents.Count + "\n"
     );
@@ -173,7 +199,7 @@ public void ApplyAPICommunication(String apiInput)
     Module core;
     
     switch(arg[0]) {
-        case "Registered":
+        case "Registered": // core validated
             IMyTerminalBlock block = GetBlock(arg[1]);
             if(block != null && block is IMyProgrammableBlock) {
                 core = new Module((IMyProgrammableBlock)block);
@@ -181,7 +207,7 @@ public void ApplyAPICommunication(String apiInput)
                 core.ConfigLCD = GetBlock(arg[2]) as IMyTextPanel;
             }
             break;
-        case "Removed":
+        case "Removed": // external core removal
             foreach(Module i in Registered) {
                 if (i.ToString() == arg[1]) {
                     Registered.Remove(i);
@@ -189,10 +215,7 @@ public void ApplyAPICommunication(String apiInput)
                 }
             }
             break;
-        case "ConfigLCD":
-            AddLcdOfCore(arg[2], arg[1]);
-            break;
-        case "ScheduleEvent":
+        case "ScheduleEvent": // core call
             foreach(Module i in Registered) {
                 if (i.ToString() == arg[1]) {
                     i.CurrentCount = Int32.Parse(arg[2]);
@@ -200,24 +223,20 @@ public void ApplyAPICommunication(String apiInput)
                 }
             }
             break;
+        case "AddListener":
+            AddListener(arg[1], arg[2]);
+            break;
+        case "RemoveListener":
+            RemoveListener(arg[1], arg[2]);
+            break;
+        case "Dispatch":
+            string[] data = new string[arg.Length - 3];
+            Array.Copy(arg, 3, data, 0, arg.Length - 3);
+            RemoveListener(arg[1], arg[2], data);
+            break;
         default:
             Echo("Unknown request: " + apiInput);
             break;
-    }
-}
-
-/**
-* Add the LCD panel to the core.
-*/
-public void AddLcdOfCore(string coreId, string lcdId)
-{
-    IMyTextPanel lcd = GetBlock(lcdId) as IMyTextPanel;
-    if (lcd == null) return;
-    foreach(Module i in Registered) {
-        if (i.ToString() == coreId) {
-            i.ConfigLCD = lcd;
-            return;
-        }
     }
 }
 
@@ -229,16 +248,17 @@ public IMyTerminalBlock GetBlock(string id)
 {
     string[] parts = id.Split('|');
     if (parts.Length != 2) return null;
-    string name = parts[1].Trim();
+    string subTypeId = parts[1].Trim();
     int gridNumber = Int32.Parse(parts[0].Trim());
     
-    List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    GridTerminalSystem.SearchBlocksOfName(name, blocks);
+    List<IMyTerminalBlock> blocks = Blocks;
+    if (blocks.Count == 0) GridTerminalSystem.GetBlocks(blocks);
     
     for(int i = 0; i < blocks.Count; i++) {
         if (
             blocks[i].NumberInGrid == gridNumber 
-            && blocks[i].CustomName == name
+            && blocks[i].BlockDefinition.SubtypeId == subTypeId
+            && blocks[i].CubeGrid  == Me.CubeGrid
         ) {
             return blocks[i];
         }
@@ -261,9 +281,15 @@ public List<Module> FindCores() {
         if(blocks[i].CubeGrid != Me.CubeGrid) continue;
         
         if(blocks[i].DetailedInfo.IndexOf("MODULE=Core") != -1) {
-            result.Add(new Module((IMyProgrammableBlock)blocks[i]));
+            String[] info = (blocks[i].DetailedInfo).Split('\n');
+            Module core = new Module((IMyProgrammableBlock)blocks[i]);
+            foreach(String j in info) {
+                if(j.IndexOf("ConfigLCD=") == 0) {
+                    core.ConfigLCD = GetBlock((j.Split('='))[1]) as IMyTextPanel;
+                }
+            }
+            result.Add(core);
         }
-            
     }
     
     return result;
@@ -291,7 +317,7 @@ public void Output(String text)
 */
 public string GetId(IMyTerminalBlock block)
 {
-    return block.NumberInGrid.ToString() + "|" + block.CustomName;
+    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
 }
 
 /**
@@ -300,8 +326,6 @@ public string GetId(IMyTerminalBlock block)
 public void RegisterOnCores()
 {
     List<Module> cores = FindCores();
-    String myId = Me.NumberInGrid.ToString() + "|" + Me.CustomName;
-    
     foreach(Module core in cores) {
         //Echo("Request register on " + core.ToString());
         core.Block.TryRun("API://RegisterModule/" + GetId(Me));
@@ -330,4 +354,20 @@ public void Uninstall()
         core.Block.TryRun("API://RemoveModule/" + GetId(Me));
     }
     Registered.Clear(); // Don't wait for answer
+}
+
+public void AddListener(string eventName, string listener)
+{
+    IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
+    if(observer == null) return;
+}
+
+public void RemoveListener(string eventName, string listener)
+{
+    IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
+    if(observer == null) return;
+}
+
+public void RemoveListener(string eventName, string sender, string[] data)
+{
 }

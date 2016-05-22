@@ -1,5 +1,5 @@
-﻿const String VERSION = "0.4.0";
-const String DATA_FORMAT = "0.3";
+﻿const String VERSION = "1.0.1";
+const String DATA_FORMAT = "1.0";
 
 /**
 * Key value memory.
@@ -38,7 +38,7 @@ public class Module {
     }
     public String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.CustomName;
+        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     } 
 }
 // Registered modules.
@@ -46,6 +46,9 @@ List<Module> Modules = new List<Module>();
 
 // The central configuration.
 List<ConfigValue> Config = new List<ConfigValue>(); 
+
+// Block Buffer
+List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
 public class Call {
     public IMyProgrammableBlock Block;
@@ -72,6 +75,9 @@ public void Main(string argument)
     //Echo("> " + lastArg);
     //Echo("> " + argument);
     lastArg = argument;
+    
+    // clear buffer
+    Blocks.Clear();
     
     LoadConfigFromConfigLCD();
     StopTimer();
@@ -108,6 +114,7 @@ public Program()
             String data = configs[i]; 
             if (data.Length > 0) Config.Add(new ConfigValue(data)); 
         } 
+        StartTimer();
     } 
 } 
  
@@ -160,9 +167,16 @@ public void ReadArgument(String args)
     }
      
     // Standard run of Core with arguments.
+    IMyTerminalBlock block;
     String[] parts = args.Split(','); 
-    if (parts.Length >= 1 && parts[0].Length > 0) GetConfig("ConfigLCD").Value = parts[0].Trim(); 
-    if (parts.Length >= 2 && parts[1].Length > 0) GetConfig("MainTimer").Value = parts[1].Trim(); 
+    if (parts.Length >= 1 && parts[0].Length > 0) {
+        block = GetBlockByName(parts[0].Trim());
+        if(block != null) GetConfig("ConfigLCD").Value = GetId(block);
+    } 
+    if (parts.Length >= 2 && parts[1].Length > 0) {
+        block = GetBlockByName(parts[1].Trim());
+        if(block != null) GetConfig("MainTimer").Value = GetId(block);
+    } 
 }
 
 /**
@@ -191,7 +205,7 @@ public void StartTimer()
      
     ConfigValue runMode = GetConfig("RunMode");
     if (runMode.Value == String.Empty) runMode.Value = "normal";
-    IMyTimerBlock timer = GridTerminalSystem.GetBlockWithName(GetConfig("MainTimer").Value) as IMyTimerBlock; 
+    IMyTimerBlock timer = GetBlock(GetConfig("MainTimer").Value) as IMyTimerBlock; 
     if(timer != null) {
         timer.ApplyAction(
             runMode.Value == "fast" ? "TriggerNow" : "Start"
@@ -208,7 +222,7 @@ public void StopTimer()
 {
     if(GetConfig("MainTimer").Value == String.Empty) return; 
 
-    IMyTimerBlock timer = GridTerminalSystem.GetBlockWithName(GetConfig("MainTimer").Value) as IMyTimerBlock; 
+    IMyTimerBlock timer = GetBlock(GetConfig("MainTimer").Value) as IMyTimerBlock; 
     if(timer != null) {
         timer.ApplyAction("Stop");
     } 
@@ -219,7 +233,7 @@ public void StopTimer()
 */
 public void OutputToConfigLcd()
 {
-    IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
     if(lcd == null) {
         Echo ("No config screen found.");
         return;
@@ -239,12 +253,12 @@ public void OutputToConfigLcd()
 */
 public void OutputDebugToConfigLcd()
 {
-    IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
     if(lcd == null) {
         return;
     }
     
-    string output = " [MBOS]"
+    string output = "[MBOS]"
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
         + " [" + GetConfig("RunCount").Value + "]" 
         + "\n\n"
@@ -267,13 +281,14 @@ public void OutputDebugToConfigLcd()
 */
 public void OutputToConsole()
 {
-    IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+    string lcd = GetConfig("ConfigLCD").Value; 
 
     Echo(
         "MODULE=Core\n"
         + "VERSION=" + VERSION + "\n"
+        + "ID=" + GetMyId() + "\n"
         + "Count=" + GetConfig("RunCount").Value + "\n"
-        + (lcd != null ? "ConfigLCD=" + GetId(lcd) + "\n" : "" )
+        + (lcd != String.Empty ? "ConfigLCD=" + lcd + "\n" : "")
         + "RegisteredModules=" + Modules.Count + "\n"
     );
 }
@@ -284,7 +299,7 @@ public void OutputToConsole()
 */
 public void LoadConfigFromConfigLCD()
 { 
-    IMyTextPanel lcd = GridTerminalSystem.GetBlockWithName(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
     if(lcd == null) {
         return;
     }
@@ -325,7 +340,7 @@ public void LoadModules()
 public void UpdateModulesConfig()
 {
     List<string> modules = new List<string>();
-    foreach(Module id in Modules.ToArray()) modules.Add(id.ToString());
+    foreach(Module module in Modules.ToArray()) modules.Add(module.ToString());
     GetConfig("RegisteredModules").Value = String.Join("#", modules.ToArray());
 }
 
@@ -341,20 +356,17 @@ public void ApplyAPICommunication(String apiInput)
     string[] stack = apiInput.Replace("API://", "").Split('/');
     Module receiver = null;
     IMyTerminalBlock block;
-    IMyTextPanel lcd;
+    string lcd = GetConfig("ConfigLCD").Value;
     
     switch(stack[0]) {
         case "RegisterModule":
             receiver = RegisterModule(stack[1]);
             if (receiver != null) {
-                lcd = GridTerminalSystem.GetBlockWithName(
-                    GetConfig("ConfigLCD").Value
-                ) as IMyTextPanel; 
                 CallStack.Add(
                     new Call(
                         receiver.Block, 
                         "API://Registered/" + GetMyId() + "/"
-                        + (lcd != null ? GetId(lcd) : "")
+                        + lcd
                     )
                 );
             }
@@ -369,14 +381,11 @@ public void ApplyAPICommunication(String apiInput)
             break;
         case "GetConfigLCD":
             block = GetBlock(stack[1]);
-            lcd = GridTerminalSystem.GetBlockWithName(
-                GetConfig("ConfigLCD").Value
-            ) as IMyTextPanel; 
-            if (block is IMyProgrammableBlock && lcd != null) {
+            if (block is IMyProgrammableBlock && lcd != String.Empty) {
                 CallStack.Add(
                     new Call(
                         (IMyProgrammableBlock) block
-                        , "API://ConfigLCD/" + GetId(lcd) + "/" + GetMyId()
+                        , "API://ConfigLCD/" + lcd + "/" + GetMyId()
                     )
                 );
             }
@@ -394,6 +403,7 @@ public Module RegisterModule(String blockId)
 {
     IMyTerminalBlock block = GetBlock(blockId);
     if(block == null || !(block is IMyProgrammableBlock)) return null;
+    foreach(Module i in Modules) if(i.ToString() == blockId) return i;
     Module module = new Module((IMyProgrammableBlock)block);
     Modules.Add(module);
     
@@ -442,9 +452,8 @@ public void InvokeModules()
 /**
 * Get specific block.
 * <param name="name">Name of block.</param>
-* <param name="gridNumber">Number inside of grid.</param>
 */
-public IMyTerminalBlock GetBlock(string name, int gridNumber)
+public IMyTerminalBlock GetBlockByName(string name)
 {
     // The Block inventory.
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
@@ -452,7 +461,7 @@ public IMyTerminalBlock GetBlock(string name, int gridNumber)
     
     for(int i = 0; i < blocks.Count; i++) {
         IMyTerminalBlock block = blocks[i];
-        if (block.NumberInGrid == gridNumber && block.CustomName == name) {
+        if (block.CubeGrid  == Me.CubeGrid && block.CustomName == name) {
             return block;
         }
     }
@@ -462,12 +471,29 @@ public IMyTerminalBlock GetBlock(string name, int gridNumber)
 
 /**
 * Get specific block.
-* <param name="blockId">Id of block.</param>
+* <param name="id">The block identifier.</param>
 */
-public IMyTerminalBlock GetBlock(string blockId)
+public IMyTerminalBlock GetBlock(string id)
 {
-    string[] parts = blockId.Split('|');
-    return GetBlock(parts[1].Trim(),  Int32.Parse(parts[0].Trim()));
+    string[] parts = id.Split('|');
+    if (parts.Length != 2) return null;
+    string subTypeId = parts[1].Trim();
+    int gridNumber = Int32.Parse(parts[0].Trim());
+    
+    List<IMyTerminalBlock> blocks = Blocks;
+    if (blocks.Count == 0) GridTerminalSystem.GetBlocks(blocks);
+    
+    for(int i = 0; i < blocks.Count; i++) {
+        if (
+            blocks[i].NumberInGrid == gridNumber 
+            && blocks[i].BlockDefinition.SubtypeId == subTypeId
+            && blocks[i].CubeGrid  == Me.CubeGrid
+        ) {
+            return blocks[i];
+        }
+    }
+    
+    return null;
 }
 
 /**
@@ -483,5 +509,5 @@ public string GetMyId()
 */
 public string GetId(IMyTerminalBlock block)
 {
-    return block.NumberInGrid.ToString() + "|" + block.CustomName;
+    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
 }

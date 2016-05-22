@@ -38,6 +38,24 @@ Lists inside of config:
 Is the `FORMAT` tag in other format, then the whole configuration will be
 cleared.
 
+### Config Values
+#### ConfigLCD 
+since: v0.2.0 
+`BlockId` of the config screen. 
+
+#### MainTimer 
+since: v0.2.0 
+`BlockId` of the Timer Block over that the MBOS Core is running. 
+
+#### RunMode 
+since: v0.2.0 
+Value Syntax: `{fast|normal}` 
+Switch between fast and normal operation mode. 
+
+#### RegisteredModules 
+since: v0.3.0 
+List of registered modules. 
+
 ## API System
 The whole MBOS system used API URN in follow syntax:
 
@@ -45,7 +63,7 @@ The whole MBOS system used API URN in follow syntax:
     
 Syntax of `BlockId`:
 
-    <Number in Grid>|<Name of Block>
+    <Number in Grid>|<Type of Block>
 
 ## Module Registration System
 ### Register a module
