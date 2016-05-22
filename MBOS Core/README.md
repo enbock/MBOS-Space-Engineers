@@ -21,6 +21,7 @@ Alternativly can the timer block also been configured in the LCD private text.
 ## Configuration
 All existent configuration will are modifyable on the config LCD screen.
 The Core supports one screen.
+
 One the configuration is set, the core store it on the process storage and is
 imedialy available on cores first run after loading the level(no booting time
 needed).
@@ -41,19 +42,24 @@ cleared.
 ### Config Values
 #### ConfigLCD 
 since: v0.2.0 
+
 `BlockId` of the config screen. 
 
 #### MainTimer 
 since: v0.2.0 
+
 `BlockId` of the Timer Block over that the MBOS Core is running. 
 
 #### RunMode 
 since: v0.2.0 
+
 Value Syntax: `{fast|normal}` 
+
 Switch between fast and normal operation mode. 
 
 #### RegisteredModules 
 since: v0.3.0 
+
 List of registered modules. 
 
 ## API System
@@ -74,6 +80,7 @@ can be renamed without loosing the connection to the modules.
     API://RegisterModule/<BlockId> 
 
 Sender: Module to Core 
+
 Request a register of a module with `BlockId` on the Core. 
 
 ### Registration feedback
@@ -81,6 +88,7 @@ Request a register of a module with `BlockId` on the Core.
     API://Registered/<BlockId>/<LCDId>
      
 Direction: Core to Module 
+
 Response of register request. `BlockId` is the Core identifier. The
 last value `LCDId` is the config LCD identifier. 
 
@@ -88,7 +96,8 @@ last value `LCDId` is the config LCD identifier.
 
     API://RemoveModule/<BlockId>
      
-Direction: Module to Core 
+Direction: Module to Core
+ 
 Request the removal of a registerd module with `BlockId` from the Core.
 Non existant module will be ignored. 
 
@@ -97,6 +106,7 @@ Non existant module will be ignored.
     API://Removed/<BlockId>
  
 Direction: Core to Module 
+
 Response after module was removed from Core with `BlockId`. 
 
 ## Time triggered execution
@@ -106,6 +116,7 @@ argument:
     API://ScheduleEvent/<BlockId>/<RunCount>
     
 Direction: Core to Module 
+
 Time based invoke of the module. 
 
 * `BlockId` is the Core which invokes. 
@@ -116,6 +127,7 @@ Time based invoke of the module.
     API://GetConfigLCD/<BlockId>
     
 `BlockId` requested the id of the Config LCD Panel.
+
 The core answers with:
 
     API://ConfigLCD/<LCDId>/<BlockId>
