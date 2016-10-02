@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.0.1";
+﻿const String VERSION = "1.0.2";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -21,7 +21,7 @@ public class ConfigValue
         Value = value; 
     } 
      
-    public String ToString() 
+    public override String ToString()
     { 
         return Key + '=' + Value; 
     } 
@@ -36,7 +36,7 @@ public class Module {
     public Module(IMyProgrammableBlock block) {
         Block = block;
     }
-    public String ToString() 
+    public override String ToString() 
     { 
         return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     } 
