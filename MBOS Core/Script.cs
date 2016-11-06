@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.0.2";
+﻿const String VERSION = "1.1.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -56,6 +56,9 @@ List<ConfigValue> Config = new List<ConfigValue>();
 // Block Buffer
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
+// Last round called blocks.
+List<IMyProgrammableBlock> LastCalled = new List<IMyProgrammableBlock>();
+
 public class Call {
     public IMyProgrammableBlock Block;
     public String Argument;
@@ -64,13 +67,12 @@ public class Call {
         Block = block;
         Argument = argument;
     }
-    
-    public bool Run()
-    {
-        return Block.TryRun(Argument);
+
+    public String GetId() 
+    { 
+        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     }
 }
-List<Call> CallStack = new List<Call>();
  
 String lastArg = "";
 /**
@@ -84,6 +86,7 @@ public void Main(string argument)
     
     // clear buffer
     Blocks.Clear();
+    LastCalled.Clear();
     
     LoadConfigFromConfigLCD();
     StopTimer();
@@ -149,11 +152,9 @@ public String FormatConfig(List<ConfigValue> config)
 /**
 * Search/Create a config memory block.
 */
-public ConfigValue GetConfig(String key) { 
-    int i; 
-    for(i = 0; i < Config.Count; i++) { 
-        if(Config[i].Key == key) return Config[i]; 
-    } 
+public ConfigValue GetConfig(String key) {
+    ConfigValue config = Config.Find(x => x.Key == key);
+    if(config != null) return config;
      
     ConfigValue newValue = new ConfigValue(key, String.Empty); 
     Config.Add(newValue); 
@@ -356,43 +357,41 @@ public void UpdateModulesConfig()
 * Calls:
 *    API://RegisterModule/<BlockId>
 *    API://RemoveModule/<BlockId>
+*    API://GetConfigLCD/<BlockId>
 */
 public void ApplyAPICommunication(String apiInput)
 {
     string[] stack = apiInput.Replace("API://", "").Split('/');
     Module receiver = null;
-    IMyTerminalBlock block;
     string lcd = GetConfig("ConfigLCD").Value;
     
     switch(stack[0]) {
         case "RegisterModule":
             receiver = RegisterModule(stack[1]);
             if (receiver != null) {
-                CallStack.Add(
-                    new Call(
-                        receiver.Block, 
-                        "API://Registered/" + GetMyId() + "/"
-                        + lcd
-                    )
+                AddCall(
+                    receiver.ToString() 
+                    , "API://Registered/" + GetMyId() + "/" + lcd
                 );
+            } else {
+                Echo("Error: Block " + stack[1] + " is invalid.");
             }
             break;
         case "RemoveModule":
             receiver = RemoveModule(stack[1]);
             if (receiver != null) {
-                CallStack.Add(
-                    new Call(receiver.Block, "API://Removed/" + GetMyId())
+                AddCall(
+                    receiver.ToString()
+                    , "API://Removed/" + GetMyId()
                 );
             }
             break;
         case "GetConfigLCD":
-            block = GetBlock(stack[1]);
+            IMyTerminalBlock block = GetBlock(stack[1]);
             if (block is IMyProgrammableBlock && lcd != String.Empty) {
-                CallStack.Add(
-                    new Call(
-                        (IMyProgrammableBlock) block
-                        , "API://ConfigLCD/" + lcd + "/" + GetMyId()
-                    )
+                AddCall(
+                    GetId(block)
+                    , "API://ConfigLCD/" + lcd + "/" + GetMyId()
                 );
             }
             break;
@@ -432,26 +431,82 @@ public Module RemoveModule(String blockId)
 }
 
 /**
+* Rebuild the callstack from config value.
+*/
+public List<Call> BuildCallStaskFromConfig() {
+    List<Call> CallStack = new List<Call>();
+    
+    String configValue = GetConfig("CallStack").Value;
+    if (configValue == String.Empty) return CallStack;
+    String[] calls = configValue.Split('#');
+    foreach(String callData in calls) {
+        String[] callParts = callData.Split('~');
+        IMyProgrammableBlock block = GetBlock(callParts[0]) as IMyProgrammableBlock;
+        if(block == null) continue; // block is not anymore in grid
+        CallStack.Add(new Call(block, callParts[1]));
+    }
+
+    return CallStack;
+}
+
+/**
 * Run calls from stack.
 */
 public void InvokeCalls()
 {
+    List<Call> CallStack = BuildCallStaskFromConfig();
     Call[] calls = CallStack.ToArray();
+
     CallStack.Clear();
+
+    GetConfig("CallStack").Value = String.Empty;
+    OutputToConfigLcd();
+
     foreach(Call call in calls) 
     {
-        call.Run();
-    } 
+        if (!LastCalled.Exists(x => x == call.Block)) { // check of already in list.
+            if (call.Block == Me) {
+                Echo("Run Me with '" + call.Argument + "'");
+                // I can't call my self ;) ... so call the core direct.
+                ReadArgument(call.Argument);
+            } else {
+                Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
+                call.Block.TryRun(call.Argument);
+                LastCalled.Add(call.Block);
+            }
+        } else {
+            CallStack.Add(call); // rescheduled for next round.
+        }
+    }
+
+    // Append calls created by Me
+    List<Call> newCalls = BuildCallStaskFromConfig();
+    foreach(Call call in newCalls) CallStack.Add(call);
+    // Append new calls of other blocks
+    LoadConfigFromConfigLCD();
+    newCalls = BuildCallStaskFromConfig();
+    foreach(Call call in newCalls) CallStack.Add(call);
+
+    // Update config
+    List<String> callList = new List<String>();
+    foreach(Call call in CallStack) {
+        callList.Add(call.GetId()+"~"+call.Argument);
+    }
+    GetConfig("CallStack").Value = String.Join("#", callList);
 }
 
 /**
 * Run registered modules.
+* Info: If an call from stack was already happened of the module, then will
+*       have the time based invoke no effect.
 */
 public void InvokeModules()
 {
     string count = GetConfig("RunCount").Value;
     foreach(Module i in Modules.ToArray()) {
-        i.Block.TryRun("API://ScheduleEvent/" + GetMyId() + "/" + count);
+        if (!LastCalled.Exists(x => x == i.Block)) {
+            i.Block.TryRun("API://ScheduleEvent/" + GetMyId() + "/" + count);
+        }
     }  
 }
 
@@ -516,4 +571,18 @@ public string GetMyId()
 public string GetId(IMyTerminalBlock block)
 {
     return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
+}
+
+/**
+* Add a call to the call stack.
+*/
+public void AddCall(String blockId, String argument)
+{
+    ConfigValue config = GetConfig("CallStack");
+    
+    if(config.Value == String.Empty) {
+        config.Value = blockId + "~" + argument;
+    } else {
+        config.Value += "#" + blockId + "~" + argument;
+    }
 }

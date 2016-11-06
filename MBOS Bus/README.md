@@ -21,7 +21,7 @@ The `BlockId` of the answer is the bus module identifier.
 
     API://RemoveListener/<EventName>/<BlockId>
 
-Remove the `BlockId`module from the observation list. Already removed modules
+Remove the `BlockId` module from the observation list. Already removed modules
 will be ignored.
 The removal will be answered with:
 

@@ -62,6 +62,14 @@ since: v0.3.0
 
 List of registered modules. 
 
+#### CallStack
+since: v1.1.0
+
+The list of call which are scheduled for next round. 
+All other module, which need to call a module, have to add his request to that config.
+
+Value Syntax: `<BlockId>~<Data>[#<BlockId>~<Data>]...`
+
 ## API System
 The whole MBOS system used API URN in follow syntax:
 

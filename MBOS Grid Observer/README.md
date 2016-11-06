@@ -5,9 +5,8 @@ If a change detectected, it will send follow events:
 
 # Events
 ## GridChanged
-Data: `global` or `local`.
-`global` means, that the full grid, also with connected grids, was changed. (Example case: Ship has connected or removed.)
-`local` indicates, that only the local/own grid was changes. (Example case: Block was added or removed.) 
+Data: `<global count>|<local count>`
+The first number is the global amount of cubes. The second one is the local(on my grid) amount.
 
 # Requirements
 Follow modules a need to be installed on grid.

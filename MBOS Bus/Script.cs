@@ -1,5 +1,5 @@
-﻿const String VERSION = "0.2.1";
-const String DATA_FORMAT = "0.1";
+﻿const String VERSION = "0.3.0";
+const String DATA_FORMAT = "1.0";
 
 /**
 * A Module or core.
@@ -51,10 +51,13 @@ public class Call {
     {
         return Block.TryRun(Argument);
     }
+    
+    public String GetBlockId() 
+    { 
+        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+    } 
 }
 
-// List of calls for next round.
-List<Call> CallStack = new List<Call>();
 // List of registered cores.
 List<Module> Registered = new List<Module>();
 // List of registered events.
@@ -144,9 +147,6 @@ public void Main(string argument)
     // clear buffer
     Blocks.Clear();
     
-    // Apply buffered calls
-    InvokeCalls();
-    
     // Appply API interaction
     if (argument.IndexOf("API://") == 0) {
         ApplyAPICommunication(argument);
@@ -188,21 +188,19 @@ public String DumpEventList()
 
 /**
 * API handler.
-*
-* Calls:
-*    API://Registered/<BlockId>
 */
 public void ApplyAPICommunication(String apiInput)
 {
     string[] arg = apiInput.Replace("API://", "").Split('/');
-    Module receiver = null;
+    //Module receiver = null;
     Module core;
     
     switch(arg[0]) {
         case "Registered": // core validated
-            IMyTerminalBlock block = GetBlock(arg[1]);
-            if(block != null && block is IMyProgrammableBlock) {
-                core = new Module((IMyProgrammableBlock)block);
+            IMyProgrammableBlock block = GetBlock(arg[1]) as IMyProgrammableBlock;
+            if(block != null) {
+                if (Registered.Exists(x => x.Block == block)) break;
+                core = new Module(block);
                 Registered.Add(core);
                 core.ConfigLCD = GetBlock(arg[2]) as IMyTextPanel;
             }
@@ -232,7 +230,7 @@ public void ApplyAPICommunication(String apiInput)
         case "Dispatch":
             string[] data = new string[arg.Length - 3];
             Array.Copy(arg, 3, data, 0, arg.Length - 3);
-            RemoveListener(arg[1], arg[2], data);
+            DispatchEvent(arg[1], arg[2], String.Join("/", data));
             break;
         default:
             Echo("Unknown request: " + apiInput);
@@ -272,7 +270,6 @@ public IMyTerminalBlock GetBlock(string id)
 */
 public List<Module> FindCores() {
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    IMyTerminalBlock block;
     List<Module> result = new List<Module>();
     
     GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(blocks);
@@ -333,19 +330,6 @@ public void RegisterOnCores()
 }
 
 /**
-* Run calls from stack.
-*/
-public void InvokeCalls()
-{
-    Call[] calls = CallStack.ToArray();
-    CallStack.Clear();
-    foreach(Call call in calls) 
-    {
-        call.Run();
-    } 
-}
-
-/**
 * Removes BUS from system.
 */
 public void Uninstall()
@@ -354,20 +338,94 @@ public void Uninstall()
         core.Block.TryRun("API://RemoveModule/" + GetId(Me));
     }
     Registered.Clear(); // Don't wait for answer
+    RegisteredEvents.Clear();
 }
 
 public void AddListener(string eventName, string listener)
 {
     IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
     if(observer == null) return;
+
+    EventList list = RegisteredEvents.Find(x => x.Key == eventName);
+    if(list == null) {
+        list = new EventList(eventName);
+        RegisteredEvents.Add(list);
+    }
+
+    if(!list.Observers.Exists(x => x.Block == observer)) {
+        list.Observers.Add(new Module(observer));
+    }
+    AddCall(GetId(observer), "API://ListenerAdded/" + eventName + "/" + GetId(Me));
 }
 
 public void RemoveListener(string eventName, string listener)
 {
     IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
     if(observer == null) return;
+
+    EventList list = RegisteredEvents.Find(x => x.Key == eventName);
+    if(list == null) {
+        AddCall(GetId(observer), "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
+        return;
+    };
+
+    Module registeredObserver = list.Observers.Find(x => x.Block == observer);
+    if(registeredObserver != null) {
+        list.Observers.Remove(registeredObserver);
+    }
+    AddCall(GetId(observer), "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
 }
 
-public void RemoveListener(string eventName, string sender, string[] data)
+public void DispatchEvent(string eventName, string sender, string data)
 {
+    EventList list = RegisteredEvents.Find(x => x.Key == eventName);
+    if(list == null) return;
+    foreach(Module module in list.Observers) {
+        AddCall(module.ToString(), "API://Dispatched/" + eventName + "/" + sender + "/" + GetId(Me) + "/" + data);
+    }
+}
+
+/**
+* Add a call request to core's call stacks.
+*/
+public void AddCall(String blockId, String argument) {
+    foreach(Module core in Registered) {
+        if (core.ConfigLCD == null) {
+            Echo(core.ToString() + " has no LCD.");
+            continue;
+        }
+        String configText = core.ConfigLCD.GetPrivateText();
+
+        if (configText.Length > 0) { 
+            String data = "";
+            String[] configs = configText.Split('\n');
+
+            foreach(String line in configs) {
+                if (line.Length > 0) {
+                    string[] parts = line.Split('=');
+                    if (parts[0] == "CallStack") {
+                        String stack = String.Empty;
+                        // read config of stack
+                        if(parts.Length == 2) stack = parts[1];
+
+                        // Add to stack
+                        if(stack == String.Empty) {
+                            stack = blockId + "~" + argument;
+                        } else {
+                            stack += "#" + blockId + "~" + argument;
+                        }
+
+                        // Write stack to config
+                        data += "CallStack=" + stack + "\n";
+                    } else {
+                        data += line + "\n";
+                    }
+                }
+            } 
+
+            core.ConfigLCD.WritePrivateText(data, false);
+        } else {
+            Echo("Missing config data in LCD of core:" + core.ToString());
+        }
+    }
 }

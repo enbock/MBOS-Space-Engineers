@@ -1,5 +1,5 @@
-const String VERSION = "1.0.0";
-const String DATA_FORMAT = "0.1";
+const String VERSION = "1.1.0";
+const String DATA_FORMAT = "1.0";
 
 /**
 * A Module.
@@ -14,6 +14,7 @@ public class Module {
     // Core counts
     public int CurrentCount = 0;
     public int LastCount = -1;
+    public bool EventRegistered = false;
     
     /**
     * Construct object and store block reference.
@@ -35,12 +36,12 @@ public class Module {
 // Block Buffer
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 // Bus list
-List<Module> busses = new List<Module>();
+List<Module> Busses = new List<Module>();
 // Registed cores
-List<Module> registeredCores = new List<Module>();
+List<Module> RegisteredCores = new List<Module>();
 // Grid infos
-int localGridCount = 0;
-int globalGridCount = 0;
+int LocalGridCount = 0;
+int GlobalGridCount = 0;
 
 /**
 * Store data.
@@ -63,7 +64,7 @@ public Program()
     if (Storage.Length == 0) return;
     String[] store = Storage.Split('\n');
     if(store[0] != "FORMAT v" + DATA_FORMAT) return;
-    registeredCores.Clear();
+    RegisteredCores.Clear();
     String[] cores = store[1].Split('#');
     foreach(String j in cores) {
         String[] ids = j.Split('*');
@@ -71,7 +72,7 @@ public Program()
         if(module != null) {
             core = new Module((IMyProgrammableBlock) module, "Core");
             if(ids.Length > 1) core.ConfigLCD = GetBlock(ids[1]) as IMyTextPanel;
-            registeredCores.Add(core);
+            RegisteredCores.Add(core);
         }
     }
 }
@@ -80,7 +81,7 @@ public Program()
 public String FormatRegisteredCores()
 {
     List<String> modules = new List<String>();
-    foreach(Module core in registeredCores) modules.Add(
+    foreach(Module core in RegisteredCores) modules.Add(
         core.ToString()
         + "*" + (core.ConfigLCD != null ? GetId(core.ConfigLCD) : "")
     );
@@ -92,13 +93,16 @@ public String FormatRegisteredCores()
 */
 public void Main(String argument)
 {
-    if(busses.Count == 0) {
-        UpdateBusses();
-    }
+    Echo(argument + "\n");
 
-    if (busses.Count == 0) {
-        Echo("No Busses or Cores found. Module aborted.");
-        Echo("Please run again after bus and core is installed.");
+    if (argument != "UNINSTALL") {
+        if(Busses.Count == 0) {
+            UpdateBusses();
+        }
+
+        if (Busses.Count == 0) {
+            Echo("No Busses or Cores found.");
+        }
     }
 
     // Appply API interaction
@@ -118,7 +122,7 @@ public void Main(String argument)
 */
 public void UpdateBusses()
 {
-    busses = FindBusses(FindCores());
+    Busses = FindBusses(FindCores());
     RegisterOnBusCores();
 }
 
@@ -156,6 +160,10 @@ public List<Module> FindCores() {
 public List<Module> FindBusses(List<Module> cores) {
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
     List<Module> result = new List<Module>();
+    
+    if(cores.Count == 0) {
+        return result;
+    }
     
     GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(blocks);
     
@@ -198,13 +206,16 @@ public string GetId(IMyTerminalBlock block)
 */
 public void DetailedInfo()
 {
+    var regCount = 0;
+    foreach(Module m in Busses) if(m.EventRegistered) regCount++;
     Echo(
         "MODULE=GRIDOBSERVER\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
-        + "Bus Count: " + busses.Count + "\n"
-        + "Local Grid: " + localGridCount + "\n"
-        + "Global Grid: " + globalGridCount + "\n"
+        + "Core Count: " + RegisteredCores.Count + "\n"
+        + "Bus Count: " + Busses.Count + " (Registed: " + regCount + ")\n"
+        + "Local Grid: " + LocalGridCount + "\n"
+        + "Global Grid: " + GlobalGridCount + "\n"
     );
 }
 
@@ -216,35 +227,72 @@ public void ApplyAPICommunication(String apiInput)
 {
     string[] arg = apiInput.Replace("API://", "").Split('/');
     Module core;
+    Module module;
     
     switch(arg[0]) {
         case "Registered": // core validated
             IMyTerminalBlock block = GetBlock(arg[1]);
             if(block != null && block is IMyProgrammableBlock) {
                 core = new Module((IMyProgrammableBlock)block, "Core");
-                registeredCores.Add(core);
+                RegisteredCores.Add(core);
                 core.ConfigLCD = GetBlock(arg[2]) as IMyTextPanel;
+
+                // Add bus event now 
+                foreach(Module bus in Busses) {
+                    if (bus.Cores.Exists(x => x.Block == block) && bus.EventRegistered == false) {
+                        Echo("Send AddListener to " + bus.ToString());
+                        foreach(Module c in bus.Cores) {
+                            AddCall(c, bus.ToString(), "API://AddListener/GridRefresh/" + GetId(Me));
+                        }
+                    }
+                }
+                //*/
             }
             break;
         case "Removed": // external core removal
-            foreach(Module i in registeredCores) {
+            foreach(Module i in RegisteredCores) {
                 if (i.ToString() == arg[1]) {
-                    registeredCores.Remove(i);
-                    UpdateBusses();
+                    /**
+                    * TODO: It could be, that the core was from a second bus used.
+                    *       In that case should the second bus also removed by
+                    *       remove listener call.
+                    */
+
+                    RegisteredCores.Remove(i);
                     break;
                 }
             }
             break;
         case "ScheduleEvent": // core call
             Blocks.Clear(); // clean cache
-            foreach(Module i in registeredCores) {
+            foreach(Module i in RegisteredCores) {
                 if (i.ToString() == arg[1]) {
                     i.CurrentCount = Int32.Parse(arg[2]);
                     break;
                 }
             }
             UpdateBlockCount();
-            Output("[Grid Observer v" + VERSION + "] Blocks: " + localGridCount + " : " + globalGridCount);
+            Output("[Grid Observer v" + VERSION + "] Blocks: " + LocalGridCount + " : " + GlobalGridCount);
+            break;
+        case "ListenerAdded": // Listener event added
+            module = Busses.Find(x => x.ToString() == arg[2]);
+            if (module != null) {
+                module.EventRegistered = true;
+            }
+            break;
+        case "ListenerRemoved": // Listener event removed
+            module = Busses.Find(x => x.ToString() == arg[2]);
+            if (module != null) {
+                foreach(Module c in module.Cores) AddCall(c, c.ToString(), "API://RemoveModule/" + GetId(Me));
+                Busses.Remove(module); // remove bus from list.
+            }
+            break;
+        case "Dispatched":
+            switch(arg[1]) {
+                default:
+                    Echo("Unknown received event: " + apiInput);
+                    break;
+            }
             break;
         default:
             Echo("Unknown request: " + apiInput);
@@ -283,17 +331,17 @@ public IMyTerminalBlock GetBlock(string id)
 */
 public void RegisterOnBusCores()
 {
-    foreach(Module bus in busses) {
+    foreach(Module bus in Busses) {
         foreach(Module core in bus.Cores) {
             bool found = false;
-            foreach(Module registered in registeredCores) {
+            foreach(Module registered in RegisteredCores) {
                 if (registered.ToString() == core.ToString()) {
                     found = true;
                     return;
                 }
             }
             if (found == false) {
-                core.Block.TryRun("API://RegisterModule/" + GetId(Me));
+                AddCall(core, core.ToString(), "API://RegisterModule/" + GetId(Me));
             }
         }
     }
@@ -305,12 +353,19 @@ public void RegisterOnBusCores()
 public void Uninstall()
 {
     Echo("Uninstall...");
-    foreach(Module core in registeredCores) {
-        core.Block.TryRun("API://RemoveModule/" + GetId(Me));
+    foreach(Module bus in Busses) {
+        Echo("Send RemoveListener to " + bus.ToString() + " "+ bus.Cores.Count);
+        foreach(Module core in bus.Cores) {
+            AddCall(core, bus.ToString(), "API://RemoveListener/GridRefresh/" + GetId(Me));
+        }
     }
-    busses.Clear();
-    localGridCount = 0;
-    globalGridCount = 0;
+    /* Should via Event Removed be done.
+    foreach(Module core in RegisteredCores) {
+        AddCall(core, core.ToString(), "API://RemoveModule/" + GetId(Me));
+    }
+    */
+    LocalGridCount = 0;
+    GlobalGridCount = 0;
 }
 
 /**
@@ -318,7 +373,7 @@ public void Uninstall()
 */
 public void Output(String text)
 {
-    foreach(Module core in registeredCores) {
+    foreach(Module core in RegisteredCores) {
         if (core.ConfigLCD == null) {
             continue;
         }
@@ -334,26 +389,32 @@ public void Output(String text)
 */ 
 public void UpdateBlockCount()
 {
-    int oldLocal = localGridCount;
-    int oldGlobal = globalGridCount;
+    int oldLocal = LocalGridCount;
+    int oldGlobal = GlobalGridCount;
 
     if (Blocks.Count == 0) GridTerminalSystem.GetBlocks(Blocks);
 
-    localGridCount = 0;
-    globalGridCount = 0;
+    LocalGridCount = 0;
+    GlobalGridCount = 0;
 
     foreach(IMyTerminalBlock block in Blocks) {
-        globalGridCount++;
+        GlobalGridCount++;
         if (block.CubeGrid  == Me.CubeGrid) {
-            localGridCount++;
+            LocalGridCount++;
         }
     }
 
-    if (globalGridCount != oldGlobal) {
-        DispatchEvent("GridChanged", "global");
-    } else if (localGridCount != oldLocal) {
-        DispatchEvent("GridChanged", "local");
+    if (GlobalGridCount != oldGlobal) {
+        DispatchGridChanged();
     }
+}
+
+/**
+* Create the GridChanged event.
+*/
+public void DispatchGridChanged()
+{
+    DispatchEvent("GridChanged", GlobalGridCount + "|" + LocalGridCount);
 }
 
 /**
@@ -361,7 +422,56 @@ public void UpdateBlockCount()
 */
 public void DispatchEvent(String type, String data)
 {
-    foreach(Module bus in busses) {
-        bus.Block.TryRun("API://Dispatch/" + type + "/" + GetId(Me) + "/" + data);
+    foreach(Module bus in Busses) {
+        if(bus.EventRegistered) {
+            Echo("Send " + type + " to " + bus.ToString());
+            foreach(Module core in bus.Cores) {
+                AddCall(core, bus.ToString(), "API://Dispatch/" + type + "/" + GetId(Me) + "/" + data);
+            }
+        }
+    }
+}
+
+/**
+* Add a call request to core's call stacks.
+*/
+public void AddCall(Module core, String blockId, String argument) {
+    if (core.ConfigLCD == null) {
+        Echo(core.ToString() + " has no LCD.");
+        return;
+    }
+    String configText = core.ConfigLCD.GetPrivateText();
+
+    if (configText.Length > 0) { 
+        String data = "";
+        String[] configs = configText.Split('\n');
+
+        foreach(String line in configs) {
+            if (line.Length > 0) {
+                string[] parts = line.Split('=');
+                if (parts[0] == "CallStack") {
+                    String stack = String.Empty;
+                    // read config of stack
+                    if(parts.Length == 2) stack = parts[1];
+
+                    // Add to stack
+                    Echo("Send " + blockId + "~" + argument);
+                    if(stack == String.Empty) {
+                        stack = blockId + "~" + argument;
+                    } else {
+                        stack += "#" + blockId + "~" + argument;
+                    }
+
+                    // Write stack to config
+                    data += "CallStack=" + stack + "\n";
+                } else {
+                    data += line + "\n";
+                }
+            }
+        } 
+
+        core.ConfigLCD.WritePrivateText(data, false);
+    } else {
+        Echo("Missing config data in LCD of core:" + core.ToString());
     }
 }
