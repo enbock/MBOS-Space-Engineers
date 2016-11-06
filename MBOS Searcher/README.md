@@ -1,4 +1,4 @@
-# MBOS Bus Searcher
+# MBOS Bus and Core Searcher
 The template script which find all Core and Bus modules on the grid.
 
 # Reference

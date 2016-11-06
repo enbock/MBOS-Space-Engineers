@@ -6,7 +6,7 @@ public class Module {
     public String Type;
     // Only for type core.
     public IMyTextPanel ConfigLCD;
-    // Only for type buses.
+    // Only for type busses.
     public List<Module> Cores = new List<Module>();
     
     /**
@@ -35,9 +35,9 @@ public void Main(String argument)
     Echo("MyID: " + GetId(Me));
     
     List<Module> cores = FindCores();
-    List<Module> buses = FindBuses(cores);
+    List<Module> busses = FindBusses(cores);
     
-    if(buses.Count == 0) Echo("No cores found.");
+    if(busses.Count == 0) Echo("No cores found.");
     else Echo("Found cores:");
 
     foreach(Module i in cores) 
@@ -51,10 +51,10 @@ public void Main(String argument)
             + "\n"
         ); 
 
-    if(buses.Count == 0) Echo("No buses found.");
-    else Echo("Found buses:");
+    if(busses.Count == 0) Echo("No busses found.");
+    else Echo("Found busses:");
     
-    foreach(Module bus in buses) {  
+    foreach(Module bus in busses) {  
         List<String> coresInBus = new List<String>();
         foreach(Module core in bus.Cores) {
             coresInBus.Add(core.ToString());
@@ -122,9 +122,10 @@ public List<Module> FindCores() {
 }
 
 /**
-* Find buses on the grid.
+* Find busses on the grid.
+* <param name="cores">Existant core list.</param>
 */
-public List<Module> FindBuses(List<Module> cores) {
+public List<Module> FindBusses(List<Module> cores) {
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
     List<Module> result = new List<Module>();
     
