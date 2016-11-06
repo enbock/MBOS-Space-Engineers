@@ -36,9 +36,15 @@ public class Module {
     public Module(IMyProgrammableBlock block) {
         Block = block;
     }
+
     public override String ToString() 
     { 
         return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+    }
+
+    public String GetName() 
+    { 
+        return Block.CustomName;
     } 
 }
 // Registered modules.
@@ -267,7 +273,7 @@ public void OutputDebugToConfigLcd()
     output += "[Core v" + VERSION + "] " 
         + "Registered Modules:\n";
     foreach(Module mod in Modules) {
-        output += "    " + mod.ToString() + "\n";
+        output += "    " + mod.GetName() + "\n";
     }
     output += "\n";
     

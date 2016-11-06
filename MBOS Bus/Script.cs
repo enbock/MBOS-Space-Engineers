@@ -1,4 +1,4 @@
-﻿const String VERSION = "0.2.0";
+﻿const String VERSION = "0.2.1";
 const String DATA_FORMAT = "0.1";
 
 /**
@@ -14,7 +14,7 @@ public class Module {
         Block = block;
     }
     
-    public String ToString() 
+    public override String ToString() 
     { 
         return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     } 
