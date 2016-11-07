@@ -49,7 +49,7 @@ If a module is needed to observe automatically, then it should register on the `
 `Core` triggers a special event to each registed module on each iteration.
 
 ### Starting a new module
-The start of a module could a bit complicated, if we start from scratch. The `Searcher` module
+The start of a module could a bit complicated, if we start from scratch. The `Module Template`
 has some code for a start. Just duplicate that module and start to fill with new functionaly.
 
 Also feel free to check the other modules in this repository and take some code from there to

@@ -2,3 +2,4 @@
 *.sbmi
 */
 !MBOS*/
+*.xcf

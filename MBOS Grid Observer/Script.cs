@@ -219,7 +219,6 @@ public void DetailedInfo()
     );
 }
 
-
 /**
 * API handler.
 */
@@ -378,7 +377,7 @@ public void Output(String text)
             continue;
         }
         if (core.LastCount != core.CurrentCount) {
-            core.ConfigLCD.WritePublicText(text, true);
+            core.ConfigLCD.WritePublicText(text + "\n", true);
             core.LastCount = core.CurrentCount;
         }
     }
