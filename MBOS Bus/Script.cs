@@ -1,4 +1,4 @@
-﻿const String VERSION = "0.3.0";
+﻿const String VERSION = "1.0.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -100,7 +100,10 @@ public Program()
             if(module != null) 
                 l.Observers.Add(new Module((IMyProgrammableBlock) module));
         }
+        RegisteredEvents.Add(l);
     } 
+
+    DetailedInfo();
 }
 
 /**
@@ -115,7 +118,7 @@ public void Save()
         list += i.Key + "=";
         modules = new List<String>();
         foreach(Module m in i.Observers) modules.Add(m.ToString());
-        list += String.Join("#", modules.ToArray());
+        list += String.Join("#", modules.ToArray()) + "\n";
     }
     
     Storage = "FORMAT v" + DATA_FORMAT + "\n"
@@ -162,8 +165,16 @@ public void Main(string argument)
     }
     
     // Outputs
+    DetailedInfo();
+}
+
+/**
+* DetailedInfo output.
+*/
+public void DetailedInfo()
+{
     Echo(
-        "MODULE=Bus\n"
+        "MODULE=" + (Registered.Count > 0 ? "Bus" : "") + "\n"
         + "VERSION=" + VERSION + "\n"
         + "ID=" + GetId(Me) + "\n"
         + "CORES=" +  FormatRegisteredCores() + "\n"
@@ -206,12 +217,7 @@ public void ApplyAPICommunication(String apiInput)
             }
             break;
         case "Removed": // external core removal
-            foreach(Module i in Registered) {
-                if (i.ToString() == arg[1]) {
-                    Registered.Remove(i);
-                    break;
-                }
-            }
+            Uninstall();
             break;
         case "ScheduleEvent": // core call
             foreach(Module i in Registered) {
@@ -334,13 +340,20 @@ public void RegisterOnCores()
 */
 public void Uninstall()
 {
+    foreach(EventList list in RegisteredEvents) {
+        foreach(Module observer in list.Observers) 
+            AddCall(observer.ToString(), "API://ListenerRemoved/" + list.Key + "/" + GetId(Me));
+    }
+    RegisteredEvents.Clear();
     foreach(Module core in Registered) {
         core.Block.TryRun("API://RemoveModule/" + GetId(Me));
     }
     Registered.Clear(); // Don't wait for answer
-    RegisteredEvents.Clear();
 }
 
+/**
+* Add event listener to observer list.
+*/
 public void AddListener(string eventName, string listener)
 {
     IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
@@ -358,6 +371,9 @@ public void AddListener(string eventName, string listener)
     AddCall(GetId(observer), "API://ListenerAdded/" + eventName + "/" + GetId(Me));
 }
 
+/**
+* Remove listener from observer list.
+*/
 public void RemoveListener(string eventName, string listener)
 {
     IMyProgrammableBlock observer = GetBlock(listener) as IMyProgrammableBlock;
@@ -376,6 +392,9 @@ public void RemoveListener(string eventName, string listener)
     AddCall(GetId(observer), "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
 }
 
+/**
+* Send a event.
+*/
 public void DispatchEvent(string eventName, string sender, string data)
 {
     EventList list = RegisteredEvents.Find(x => x.Key == eventName);

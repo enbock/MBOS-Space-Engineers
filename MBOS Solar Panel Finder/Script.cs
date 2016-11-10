@@ -1,5 +1,5 @@
 // Module version
-const String VERSION = "0.1.0";
+const String VERSION = "1.0.0";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -12,6 +12,8 @@ public class Module {
     public IMyTextPanel ConfigLCD;
     // Only for type busses.
     public Module Core;
+    // Bus registered
+    public bool Registered = false;
     
     /**
     * Construct object and store block reference.
@@ -43,10 +45,10 @@ public void Save()
         + (
             Bus != null ? (
                 "Bus=" + Bus + "*" + (
-                    Bus.Core + "*" + (
-                        Bus.Core.ConfigLCD != null ? GetId(Bus.Core.ConfigLCD) : ""
-                    )
-                ) 
+                    Bus.Core 
+                    + "*" + (Bus.Core.ConfigLCD != null ? GetId(Bus.Core.ConfigLCD) : "") 
+                    + "*" + (Bus.Registered == true ? "true" : "false")
+                )
             ) : ""
         ) + " \n"
     ;
@@ -80,7 +82,7 @@ public void LoadBusFromConfig(String config)
     String[] args = config.Split('=');
     if (args.Length != 2) return;
     String[] blocks = (args[1]).Split('*');
-    if (blocks.Length != 3) return;
+    if (blocks.Length != 4) return;
 
     IMyProgrammableBlock bus = GetBlock(blocks[0]) as IMyProgrammableBlock;
     IMyProgrammableBlock core = GetBlock(blocks[1]) as IMyProgrammableBlock;
@@ -91,8 +93,11 @@ public void LoadBusFromConfig(String config)
     Bus = new Module(bus) { 
         Core = new Module(core) { 
             ConfigLCD = lcd 
-        } 
+        },
+        Registered = blocks[3].Trim().Equals("true")
     };
+    
+    if (Bus.Registered) DispatchEvent("GridRefresh", "");
 }
 
 /**
@@ -282,10 +287,10 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=TEMPLATE\n"
+        "MODULE=SOLARPANELFINDER\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
-        + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
+        + "Bus: " + (Bus != null? "found " + (Bus.Registered ? "and registered" : ", but in registration") : "unregistered") + "\n"
     );
 }
 
@@ -297,8 +302,8 @@ public void SearchBus()
     List<Module> busses = FindBusses(FindCores());
     if (busses.Count == 0) return;
     Bus = busses[0];
-    /*/
-    AddCall(Bus.Core, Bus.ToString(), "API://AddListener/<EVENTNAME_HERE>/" + GetId(Me));
+    //
+    AddCall(Bus.Core, Bus.ToString(), "API://AddListener/GridChanged/" + GetId(Me));
     /* / // or if needed
     AddCall(Bus.Core, Bus.Core.ToString(), "API://RegisterModule/" + GetId(Me));
     //*/
@@ -311,8 +316,8 @@ public void Uninstall()
 {
     Echo("Uninstall...");
     if (Bus == null) return;
-    /*/
-    AddCall(Bus.Core, Bus.ToString(), "API://RemoveListener/<EVENTNAME_HERE>/" + GetId(Me));
+    //
+    AddCall(Bus.Core, Bus.ToString(), "API://RemoveListener/GridChanged/" + GetId(Me));
     /* / // or if needed
     AddCall(Bus.Core, Bus.Core.ToString(), "API://RemoveModule/" + GetId(Me));
     //*/
@@ -339,14 +344,11 @@ public void ApplyAPICommunication(String apiInput)
     String[] arg = apiInput.Replace("API://", "").Split('/');
     
     switch(arg[0]) {
-        case "Registered": // core validated
-            OnCoreRegistration(arg);
+        case "ListenerAdded":
+            OnBusRegistration();
             break;
-        case "Removed": // external core removal
-            OnCoreRemoval(arg);
-            break;
-        case "ScheduleEvent": // core call
-            OnTimeEvent(arg);
+        case "ListenerRemoved":
+            OnBusRemoval();
             break;
         case "Dispatched":
             if (arg[3] == Bus.ToString()) {
@@ -362,27 +364,20 @@ public void ApplyAPICommunication(String apiInput)
 }
 
 /**
-* On Core registered.
+* Bus event registered.
 */
-public void OnCoreRegistration(String[] arg)
+public void OnBusRegistration()
 {
-    // To something after core registered here ;)
+    Bus.Registered = true;
+    DispatchEvent("GridRefresh", "");
 }
 
 /**
-* From core removed.
+* Bus event removed.
 */
-public void OnCoreRemoval(String[] arg)
+public void OnBusRemoval()
 {
     Bus = null;
-}
-
-/**
-* Core time call.
-*/
-public void OnTimeEvent(String[] arg)
-{
-    Output("[Template Module v" + VERSION + "]");
 }
 
 /**
@@ -392,8 +387,30 @@ public void OnEvent(String eventName, String sourceId, String data)
 {
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
+        case "GridChanged":
+            UpdatePanels();
+            break;
         default:
             Echo("Unknown received event: " + eventName);
             break;
     }
+}
+
+/**
+* Dispatch event to all busses.
+*/
+public void DispatchEvent(String type, String data)
+{
+    if(Bus.Registered) {
+        Echo("Send " + type + " to " + Bus.ToString());
+        AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/" + type + "/" + GetId(Me) + "/" + data);
+    }
+}
+
+/**
+* Searches for panels
+*/
+public void UpdatePanels()
+{
+    Echo("Should search now...");
 }

@@ -1,5 +1,5 @@
-const String VERSION = "1.1.0";
-const String DATA_FORMAT = "1.0";
+const String VERSION = "1.1.1";
+const String DATA_FORMAT = "1.1";
 
 /**
 * A Module.
@@ -49,7 +49,8 @@ int GlobalGridCount = 0;
 public void Save()
 {   
     Storage = "FORMAT v" + DATA_FORMAT + "\n"
-        +  FormatRegisteredCores()
+        + FormatRegisteredCores() + "\n"
+        + FormatBusses()
     ;
 }
 
@@ -60,6 +61,7 @@ public Program()
 {
     IMyTerminalBlock module; 
     Module core;
+    Module bus;
 
     if (Storage.Length == 0) return;
     String[] store = Storage.Split('\n');
@@ -75,6 +77,28 @@ public Program()
             RegisteredCores.Add(core);
         }
     }
+    Busses.Clear();
+    if (store.Length >= 3 && store[2].Length > 0) {
+        Echo("Load "+store[2].Length);
+        String[] busses = store[2].Split('#');
+        foreach(String j in busses) {
+            String[] ids = j.Split('*');
+            module = GetBlock(ids[0]);
+            bool registered = ids[1].Trim() == "true" ? true : false;
+            cores = ids[2].Split('+');
+            if(module != null) {
+                bus = new Module((IMyProgrammableBlock) module, "Bus") { EventRegistered = registered };
+                Busses.Add(bus);
+                foreach(String i in cores) {
+                    core = RegisteredCores.Find(x => x.ToString() == i);
+                    if (core != null) {
+                        bus.Cores.Add(core);
+                    }
+                }
+            }
+        }
+    }
+    DetailedInfo();
 }
 
 // Format Cores to storable form (serialize).
@@ -85,6 +109,21 @@ public String FormatRegisteredCores()
         core.ToString()
         + "*" + (core.ConfigLCD != null ? GetId(core.ConfigLCD) : "")
     );
+    return String.Join("#", modules.ToArray());
+}
+
+public String FormatBusses()
+{
+    List<String> modules = new List<String>();
+    foreach(Module bus in Busses) {
+        List<String> cores = new List<String>();
+        foreach(Module core in bus.Cores) cores.Add(core.ToString());
+        modules.Add(
+            bus.ToString()
+            + "*" + (bus.EventRegistered ? "true" : "false")
+            + "*" + String.Join("+", cores.ToArray())
+        );
+    }
     return String.Join("#", modules.ToArray());
 }
 
@@ -113,7 +152,7 @@ public void Main(String argument)
             Uninstall();
         }
     }
-    
+
     DetailedInfo();
 }
 
@@ -261,6 +300,8 @@ public void ApplyAPICommunication(String apiInput)
                     break;
                 }
             }
+            LocalGridCount = 0;
+            GlobalGridCount = 0;
             break;
         case "ScheduleEvent": // core call
             Blocks.Clear(); // clean cache
@@ -278,6 +319,7 @@ public void ApplyAPICommunication(String apiInput)
             if (module != null) {
                 module.EventRegistered = true;
             }
+            DispatchGridChanged();
             break;
         case "ListenerRemoved": // Listener event removed
             module = Busses.Find(x => x.ToString() == arg[2]);
@@ -285,9 +327,14 @@ public void ApplyAPICommunication(String apiInput)
                 foreach(Module c in module.Cores) AddCall(c, c.ToString(), "API://RemoveModule/" + GetId(Me));
                 Busses.Remove(module); // remove bus from list.
             }
+            LocalGridCount = 0;
+            GlobalGridCount = 0;
             break;
         case "Dispatched":
             switch(arg[1]) {
+                case "GridRefresh":
+                    DispatchGridChanged();
+                    break;
                 default:
                     Echo("Unknown received event: " + apiInput);
                     break;
@@ -358,11 +405,11 @@ public void Uninstall()
             AddCall(core, bus.ToString(), "API://RemoveListener/GridRefresh/" + GetId(Me));
         }
     }
-    /* Should via Event Removed be done.
+    /* Should via Event Removed be done. * /
     foreach(Module core in RegisteredCores) {
         AddCall(core, core.ToString(), "API://RemoveModule/" + GetId(Me));
     }
-    */
+    //*/
     LocalGridCount = 0;
     GlobalGridCount = 0;
 }

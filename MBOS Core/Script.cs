@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.0";
+﻿const String VERSION = "1.1.2";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -74,15 +74,12 @@ public class Call {
     }
 }
  
-String lastArg = "";
 /**
 * Program logic.
 */
 public void Main(string argument)
 {
-    //Echo("> " + lastArg);
-    //Echo("> " + argument);
-    lastArg = argument;
+    Echo(argument);
     
     // clear buffer
     Blocks.Clear();
@@ -93,8 +90,14 @@ public void Main(string argument)
     if(Modules.Count == 0) LoadModules();
     
     InvokeCalls();
-    
-    ReadArgument(argument); 
+
+    if (argument == "UNINSTALL") {
+        foreach(Module module in Modules) {
+            AddCall(GetId(Me), "API://RemoveModule/"+module.ToString());
+        }
+    } else {
+        ReadArgument(argument);
+    } 
     UpdateModulesConfig();
     
     CountRun(); 
@@ -125,6 +128,7 @@ public Program()
         } 
         StartTimer();
     } 
+    OutputToConsole();
 } 
  
 /**
