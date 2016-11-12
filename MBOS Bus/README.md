@@ -56,3 +56,11 @@ register itself on each found core module.
 * Run the block once manually without any argument.
 
 It is not needed, to add this module to any Timer Block.
+
+## Deinstallation
+Execute the core once with argument `UNINSTALL`.
+That will start a deregistration of all module. After that the core storage
+is cleaned.
+The registered modules receive the removal from core. They should uninstall
+his own module relations. Finally should stay all module in fresh state for
+reinstallation.

@@ -248,7 +248,7 @@ public void DetailedInfo()
     var regCount = 0;
     foreach(Module m in Busses) if(m.EventRegistered) regCount++;
     Echo(
-        "MODULE=GRIDOBSERVER\n"
+        "MODULE=GridObserver\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Core Count: " + RegisteredCores.Count + "\n"

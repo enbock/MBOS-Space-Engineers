@@ -133,8 +133,7 @@ public IMyTerminalBlock GetBlock(string id)
     string subTypeId = parts[1].Trim();
     int gridNumber = Int32.Parse(parts[0].Trim());
     
-    List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    GridTerminalSystem.GetBlocks(blocks);
+    List<IMyTerminalBlock> blocks = GetBlocks();
     
     for(int i = 0; i < blocks.Count; i++) {
         if (
@@ -282,7 +281,7 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=TEMPLATE\n"
+        "MODULE=TemplateModule\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"

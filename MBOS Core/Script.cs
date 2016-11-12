@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.2";
+﻿const String VERSION = "1.1.3";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -459,42 +459,34 @@ public List<Call> BuildCallStaskFromConfig() {
 public void InvokeCalls()
 {
     List<Call> CallStack = BuildCallStaskFromConfig();
-    Call[] calls = CallStack.ToArray();
 
-    CallStack.Clear();
+    if (CallStack.Count == 0) return;
 
     GetConfig("CallStack").Value = String.Empty;
     OutputToConfigLcd();
 
-    foreach(Call call in calls) 
-    {
-        if (!LastCalled.Exists(x => x == call.Block)) { // check of already in list.
-            if (call.Block == Me) {
-                Echo("Run Me with '" + call.Argument + "'");
-                // I can't call my self ;) ... so call the core direct.
-                ReadArgument(call.Argument);
-            } else {
-                Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
-                call.Block.TryRun(call.Argument);
-                LastCalled.Add(call.Block);
-            }
-        } else {
-            CallStack.Add(call); // rescheduled for next round.
-        }
-    }
+    Call call = CallStack[0];
+    CallStack.Remove(call);
+    if (call.Block == Me) {
+        Echo("Run Me with '" + call.Argument + "'");
+        // I can't call my self ;) ... so call the core direct.
+        ReadArgument(call.Argument);
+    } else {
+        Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
+        call.Block.TryRun(call.Argument);
+        LastCalled.Add(call.Block);
 
-    // Append calls created by Me
+        // Append new calls of other blocks
+        LoadConfigFromConfigLCD();
+    }
+    // Append calls created by Me or other blocks
     List<Call> newCalls = BuildCallStaskFromConfig();
-    foreach(Call call in newCalls) CallStack.Add(call);
-    // Append new calls of other blocks
-    LoadConfigFromConfigLCD();
-    newCalls = BuildCallStaskFromConfig();
-    foreach(Call call in newCalls) CallStack.Add(call);
+    foreach(Call nCall in newCalls) CallStack.Add(nCall);
 
     // Update config
     List<String> callList = new List<String>();
-    foreach(Call call in CallStack) {
-        callList.Add(call.GetId()+"~"+call.Argument);
+    foreach(Call call4String in CallStack) {
+        callList.Add(call4String.GetId()+"~"+call4String.Argument);
     }
     GetConfig("CallStack").Value = String.Join("#", callList);
 }

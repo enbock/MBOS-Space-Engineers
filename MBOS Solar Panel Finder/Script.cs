@@ -31,10 +31,47 @@ public class Module {
     } 
 }
 
+/**
+* A solar panel grid.
+*/
+public class PanelGrid {
+    static Int32 NextId = 1;
+
+    // Panel grid id.
+    public Int32 Id;
+
+    // Panel liste
+    public List<IMySolarPanel> Panels = new List<IMySolarPanel>();
+
+    // The grid
+    public IMyCubeGrid CubeGrid;
+
+    // Motor for yawing
+    public IMyMotorBase Yaw;
+
+    // Motor for pitching.
+    public IMyMotorBase Pitch;
+
+    /**
+    * Create grid storage and build identifier.
+    */
+    public PanelGrid()
+    {
+        Id = NextId++;
+    } 
+
+    public override string ToString()
+    {
+        return Id.ToString();
+    }
+}
+
 // Registered bus.
 Module Bus  = null;
 // Block cache.
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
+// Panel cache
+List<PanelGrid> Panels = new List<PanelGrid>();
 
 /**
 * Store data.
@@ -120,6 +157,9 @@ public void Main(String argument)
     } else {
         if (argument == "UNINSTALL") {
             Uninstall();
+        } else {
+            // Manually Updates
+            UpdatePanels();
         }
     }
     
@@ -138,8 +178,7 @@ public IMyTerminalBlock GetBlock(string id)
     string subTypeId = parts[1].Trim();
     int gridNumber = Int32.Parse(parts[0].Trim());
     
-    List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    GridTerminalSystem.GetBlocks(blocks);
+    List<IMyTerminalBlock> blocks = GetBlocks();
     
     for(int i = 0; i < blocks.Count; i++) {
         if (
@@ -287,7 +326,7 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=SOLARPANELFINDER\n"
+        "MODULE=SolarPanelFinder\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null? "found " + (Bus.Registered ? "and registered" : ", but in registration") : "unregistered") + "\n"
@@ -412,5 +451,38 @@ public void DispatchEvent(String type, String data)
 */
 public void UpdatePanels()
 {
-    Echo("Should search now...");
+    List<IMyTerminalBlock> blocks = GetBlocks().FindAll(x => x is IMySolarPanel);
+    List<IMyCubeGrid> blackList = new List<IMyCubeGrid>();
+    blackList.Add(Me.CubeGrid);
+
+    GetBlocks(); // update cache
+
+    foreach (IMyTerminalBlock block in blocks) {
+        // Skip solar panel on root grid.
+        if (blackList.Exists(x => x == block.CubeGrid)) continue;
+        // Find grid data
+        PanelGrid grid = Panels.Find(x => x.CubeGrid == block.CubeGrid);
+        if (grid == null) {
+            grid = new PanelGrid() {
+                CubeGrid = block.CubeGrid
+            };
+            Panels.Add(grid);
+        }
+        if(! grid.Panels.Exists(x => x == (IMySolarPanel)block)) {
+            grid.Panels.Add((IMySolarPanel)block);
+        }
+        // Update custom name.
+        block.SetCustomName(block.CustomName.Split('[')[0].Trim() + " [SolarGrid#" + grid.Id + "]");
+    }
+
+    foreach (PanelGrid grid in Panels) {
+            grid.Pitch = Blocks.Find(x => x.CustomName.Contains("SolarPitch#" + grid.Id)) as IMyMotorBase;
+            grid.Yaw = Blocks.Find(x => x.CustomName.Contains("SolarYaw#" + grid.Id)) as IMyMotorBase;
+            if (grid.Pitch == null || grid.Yaw == null) {
+                Echo("[SolarPitch#" + grid.Id + "] or [SolarYaw#" + grid.Id + "] Motor not found.");
+            }
+    }
+
+    Echo("Found " + Panels.Count + " solar grids. " + Panels.FindAll(x => x.Yaw == null || x.Pitch == null).Count + " panel(s) are incomplete.");
+    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SolarGrids/" + GetId(Me) + "/" + String.Join(",", Panels.FindAll(x => x.Yaw != null && x.Pitch != null)));
 }
