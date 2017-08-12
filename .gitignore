@@ -2,4 +2,5 @@
 *.sbmi
 */
 !MBOS*/
+!Proto-*/
 *.xcf
