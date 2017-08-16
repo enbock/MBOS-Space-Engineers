@@ -31,13 +31,13 @@ public void Main(string argument) {
     // The method itself is required, but the argument above
     // can be removed if not needed.
     IMyTerminalBlock connector = GetBlockByName("[DropPort]");
-    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,5));
+    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,0));
     
     Vector3D  pos2 = connector.GetPosition();
     Vector3D  pos3 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-1,0));
-    //pos2 += (pos3 - pos2)  * 0.7;
+    pos2 += (pos3 - pos2)  * 0.7;
 
-    pos2 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,2,0));
+    //pos2 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,2,0));
 
     var sendString = "PORT|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
     bool sent = antenna.TransmitMessage(sendString); //, MyTransmitTarget.Everyone);
