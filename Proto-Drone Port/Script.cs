@@ -1,10 +1,17 @@
-﻿public Program() {
+﻿IMyRadioAntenna antenna;
+IMyTextPanel debug;
+
+public Program() {
     // The constructor, called only once every session and
     // always before any other method is called. Use it to
     // initialize your script. 
     //     
     // The constructor is optional and can be removed if not
     // needed.
+    List<IMyRadioAntenna> Antennas = new List<IMyRadioAntenna>();
+    GridTerminalSystem.GetBlocksOfType<IMyRadioAntenna>(Antennas);
+    antenna = Antennas[0];
+    debug = GetBlockByName("[DEBUG]") as IMyTextPanel;
 }
 
 public void Save() {
@@ -17,16 +24,24 @@ public void Save() {
 }
 
 public void Main(string argument) {
+    Echo("RUN:"+argument);
     // The main entry point of the script, invoked every time
     // one of the programmable block's Run actions are invoked.
     // 
     // The method itself is required, but the argument above
     // can be removed if not needed.
-    IMyRadioAntenna ant = GetBlockByName("MX") as IMyRadioAntenna;
-    IMyTerminalBlock connector = GetBlockByName("[Drop] Connector");
-    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,0));
+    IMyTerminalBlock connector = GetBlockByName("[DropPort]");
+    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,5));
+    
     Vector3D  pos2 = connector.GetPosition();
-    ant.TransmitMessage("PORT|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z, MyTransmitTarget.Default);
+    Vector3D  pos3 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-1,0));
+    //pos2 += (pos3 - pos2)  * 0.7;
+
+    pos2 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,2,0));
+
+    var sendString = "PORT|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
+    bool sent = antenna.TransmitMessage(sendString); //, MyTransmitTarget.Everyone);
+    debug.WritePublicText(sendString);
 }
 
 

@@ -1,93 +1,100 @@
-﻿public Program() {
-    // The constructor, called only once every session and
-    // always before any other method is called. Use it to
-    // initialize your script. 
-    //     
-    // The constructor is optional and can be removed if not
-    // needed.
-    Gyros.Clear();
-    GridTerminalSystem.GetBlocksOfType<IMyGyro>(Gyros);
+﻿string mode = "none";
+Vector3D lastTarget = new Vector3D(0,0,0);
+IMyShipConnector connector;
+IMyRemoteControl ctrlFlight;
+IMyRemoteControl ctrlDock;
+string need = "NONE";
+
+public Program() {
+    connector = GetBlockByName("[Connector]") as IMyShipConnector;
+    ctrlFlight = GetBlockByName("[CtrlFlight]") as IMyRemoteControl;
+    ctrlDock = GetBlockByName("[CtrlDock]") as IMyRemoteControl;
 }
 
 public void Save() {
-    // Called when the program needs to save its state. Use
-    // this method to save your state to the Storage field
-    // or some other means. 
-    // 
-    // This method is optional and can be removed if not
-    // needed.
+    // Nothing yet
 }
 
-string mode = "none";
-Vector3D lastTarget = new Vector3D(0,0,0);
-List<IMyGyro> Gyros = new List<IMyGyro>();
-
 public void Main(string argument) {
-    // The main entry point of the script, invoked every time
-    // one of the programmable block's Run actions are invoked.
-    // 
-    // The method itself is required, but the argument above
-    // can be removed if not needed.
+    Echo("RUN:"+argument);
+
     string[] args = argument.Split('|');
+
+    bool isLocked = connector.Status == MyShipConnectorStatus.Connected;
 
     switch(args[0])
     {
         case "PORT":
-            Vector3D vec1 = new Vector3D(Double.Parse(args[1]),Double.Parse(args[2]),Double.Parse(args[3]));
-            Vector3D vec2 = new Vector3D(Double.Parse(args[4]),Double.Parse(args[5]),Double.Parse(args[6]));
-            IMyTerminalBlock connector = GetBlockByName("[Connector]");
-            IMyRemoteControl ctrl = GetBlockByName("[Ctrl]") as IMyRemoteControl;
-            Vector3D mePos = Me.GetPosition();
-            Vector3D offset = ctrl.GetPosition() - connector.GetPosition();
-
-            foreach (var g in Gyros)
-            {
-                Vector3D localGrav=Vector3D.Transform(ctrl.GetTotalGravity(), MatrixD.Transpose(g.WorldMatrix.GetOrientation()));
-
-                ITerminalProperty<float> propGyroPitch = g.GetProperty("Pitch").AsFloat();
-                ITerminalProperty<float> propGyroYaw   = g.GetProperty("Yaw"  ).AsFloat();
-                ITerminalProperty<float> propGyroRoll  = g.GetProperty("Roll" ).AsFloat();
-
-                propGyroYaw.SetValue(g, (float)localGrav.X / 10.0f);
-                propGyroPitch.SetValue(g, (float)localGrav.Y / 10.0f);
+            if (!isLocked && need=="PORT") {
+                Echo("Run PORT with " + mode);
+                DoPort(args);
             }
-
-            Echo (""+(mePos - (vec2 + offset)));
-            Echo("------------");
-            if (vec1 != lastTarget) {
-                mode = "none";
-                lastTarget = vec1; 
-                Echo ("Reset mode...");
-            }
-            switch(mode) 
-            {
-                case "none":
-                    Echo ("Go in flight..."); 
-                    ctrl.ClearWaypoints();
-                    ctrl.AddWaypoint(vec1 + offset, "Port");
-                    ctrl.SetAutoPilotEnabled(true);
-                    mode = "flight";
-                    break;
-                case "flight":
-                    if (ctrl.IsAutoPilotEnabled == false) {
-                        Echo ("Go in docking..."); 
-                        ctrl.ClearWaypoints();
-                        ctrl.AddWaypoint(vec2 + offset, "Dock");
-                        //ctrl.SetAutoPilotEnabled(true);
-                        mode = "docking";
-                    }
-                    break;
-                case "reset":
-                    mode = "none";
-                    lastTarget = new Vector3D();
-                    break;
-            }
-            Echo ("MODE: " + mode);
             break;
+        case "NEED":
+            need = args[1];
+            ctrlDock.SetAutoPilotEnabled(false);
+            ctrlFlight.SetAutoPilotEnabled(false);
+            break;
+        case "reset":
+            mode = "none";
+            lastTarget = new Vector3D();
+            ctrlDock.SetAutoPilotEnabled(false);
+            ctrlFlight.SetAutoPilotEnabled(false);
+            break;
+        default:
+            break;
+
     }
 }
 
+public void DoPort(string[] args)
+{
+    Vector3D vec1 = new Vector3D(Double.Parse(args[1]),Double.Parse(args[2]),Double.Parse(args[3]));
+    Vector3D vec2 = new Vector3D(Double.Parse(args[4]),Double.Parse(args[5]),Double.Parse(args[6]));
+    Vector3D mePos = Me.GetPosition();
+    Vector3D offsetFlight = connector.GetPosition() - ctrlFlight.GetPosition();
+    Vector3D offsetDock = connector.GetPosition() - ctrlDock.GetPosition();
 
+    Echo("PORT:"+(ctrlFlight.GetPosition() - (vec1 - offsetFlight)));
+    Echo("DOCK:"+(ctrlDock.GetPosition() - (vec2 - offsetDock)));
+    if (vec1 != lastTarget) {
+        mode = "none";
+        lastTarget = vec1; 
+    }
+    bool flightOn = false;
+    bool dockOn   = false;
+    switch(mode) 
+    {
+        case "none":
+            Echo ("Go in flight..."); 
+            ctrlFlight.ClearWaypoints();
+            ctrlFlight.AddWaypoint(vec1 - offsetFlight, "Port");
+            flightOn = true;
+            mode = "flight";
+            break;
+        case "flight":
+            /*if (ctrlFlight.IsAutoPilotEnabled == false) {
+                Echo ("Go in docking..."); 
+                ctrlDock.ClearWaypoints();
+                ctrlDock.AddWaypoint(vec2 - offsetDock, "Dock");
+                dockOn = true;
+                mode = "docking";
+            }*/
+            break;
+        case "docking":
+            if (connector.Status == MyShipConnectorStatus.Connectable) {
+                Echo ("Locking"); 
+                if(connector.Status != MyShipConnectorStatus.Connected) connector.GetActionWithName("SwitchLock").Apply(connector);
+                mode = "none";
+                need = "NONE";
+            } else {
+                dockOn = true;
+            }
+            break;
+    }
+    ctrlFlight.SetAutoPilotEnabled(flightOn);
+    ctrlDock.SetAutoPilotEnabled(dockOn);
+}
 
 /**
 * Get specific block.
@@ -109,8 +116,14 @@ public IMyTerminalBlock GetBlockByName(string name)
     return null;
 }
 
-
-
+/**
+ * Turn off auto pilot
+ */
+public void DisableAutoPilot()
+{
+    ctrlFlight.SetAutoPilotEnabled(false);
+    ctrlDock.SetAutoPilotEnabled(false);
+}
 
 
 // PRETTY
