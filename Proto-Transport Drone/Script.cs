@@ -3,7 +3,8 @@ IMyShipConnector connector;
 IMyRemoteControl ctrlFlight;
 IMyRemoteControl ctrlDock;
 string need = "NONE";
-string currentPosition = "NONE";
+string targetPosition = "NONE";
+Vector3D targetVector = new Vector3D();
 bool isLocked = false;
 
 public Program() {
@@ -17,53 +18,52 @@ public void Save() {
 }
 
 public void Main(string argument) {
-    Echo("RUN:"+argument);
 
     string[] args = argument.Split('|');
+    Echo("RUN:"+args[0]);
 
     isLocked = connector.Status == MyShipConnectorStatus.Connected;
 
     switch(args[0])
     {
-        case "PORT":
-            if (need=="PORT") {
-                DoPort(args);
-            }
-            if(need == "UNDOCK" && currentPosition == "PORT") {
-                DoUndock(args);
-            }
-            break;
         case "NEED":
             need = args[1];
-            DisableAutoPilot();
-            break;
-        case "current":
-            currentPosition = args[1];
             DisableAutoPilot();
             break;
         case "reset":
             mode = "none";
             need = "NONE";
-            currentPosition = "NONE";
+            targetPosition = "NONE";
             DisableAutoPilot();
             break;
 
         // Undock test
-        case "t1":
+        case "u":
             mode = "none";
             need = "UNDOCK";
-            currentPosition = "PORT";
+            if(args.Length > 1) targetPosition = args[1];
             DisableAutoPilot();
             break;
         // Port dock test
-        case "t2":
+        case "d":
             mode = "none";
-            need = "PORT";
-            currentPosition = "NONE";
+            need = "DOCK";
+            if(args.Length > 1) targetPosition = args[1];
             DisableAutoPilot();
             break;
 
         default:
+            if (targetPosition == args[0]) {
+                switch(need)
+                {
+                    case "DOCK":
+                        DoFlightAndDock(args);
+                        break;
+                    case "UNDOCK":
+                        DoUndock(args);
+                        break;
+                }
+            }
             break;
 
     }
@@ -79,29 +79,25 @@ public void Main(string argument) {
                 need = "NONE";
                 break;
             default:
-                currentPosition = need;
                 need = "NONE";
                 break;
         }
     }
 
-    Echo("----------------------------------");
-    Echo(
-        " Need:" + need + 
-        " Mode:" + mode + 
-        " Locked:" + (isLocked ? "yes" : "no") +
-        " Pos:" + currentPosition
-    );
+    Echo("Distance:" + (ctrlFlight.GetPosition() - targetVector));
+    Echo("Need:" + need); 
+    Echo("Mode:" + mode);
+    Echo("Locked:" + (isLocked ? "yes" : "no"));
+    Echo("Pos:" + targetPosition);
 }
 
-public void DoPort(string[] args)
+public void DoFlightAndDock(string[] args)
 {
     Vector3D vec1 = new Vector3D(Double.Parse(args[1]),Double.Parse(args[2]),Double.Parse(args[3]));
     Vector3D vec2 = new Vector3D(Double.Parse(args[4]),Double.Parse(args[5]),Double.Parse(args[6]));
     Vector3D offsetFlight = connector.GetPosition() - ctrlFlight.GetPosition();
     Vector3D offsetDock = connector.GetPosition() - ctrlDock.GetPosition();
 
-    
     bool flightOn = false;
     bool dockOn   = false;
     bool isReached;
@@ -111,23 +107,23 @@ public void DoPort(string[] args)
             if (!isLocked) {
                 Echo ("Go in flight..."); 
                 ctrlFlight.ClearWaypoints();
-                ctrlFlight.AddWaypoint(vec1 - offsetFlight, "Port");
+                targetVector = vec1 - offsetFlight;
+                ctrlFlight.AddWaypoint(targetVector, "Flight to");
                 flightOn = true;
                 mode = "flight";
             }
             break;
         case "flight":
-            isReached = SmallThan(ctrlFlight.GetPosition() - (vec1 - offsetFlight), new Vector3D(3.0,3.0,3.0));
+            isReached = SmallThan(ctrlFlight.GetPosition() - targetVector, new Vector3D(6.0,6.0,6.0));
             flightOn = !isReached;
 
             if (isReached) {
                 Echo ("Go in docking..."); 
                 ctrlDock.ClearWaypoints();
-                ctrlDock.AddWaypoint(vec2 - offsetDock, "Dock");
+                targetVector = vec2 - offsetDock;
+                ctrlDock.AddWaypoint(targetVector, "Dock");
                 dockOn = true;
                 mode = "docking";
-            } else{
-                Echo("In "+(flightOn?"flight":"???")+"...");
             }
             break;
         case "docking":
@@ -176,16 +172,16 @@ public void DoUndock(string[] args)
                 connector.GetActionWithName("SwitchLock").Apply(connector);
                 flightOn = false;
             } else {
-                Echo ("Flight to " +(vec1 - offsetFlight));
                 ctrlFlight.ClearWaypoints();
-                ctrlFlight.AddWaypoint(vec1 - offsetFlight, "Undock");
+                targetVector = vec1 - offsetFlight;
+                ctrlFlight.AddWaypoint(targetVector, "Undock");
                 flightOn = true;
                 mode="flight";
             }
             break;
 
         case "flight":
-            isReached = SmallThan(ctrlFlight.GetPosition() - (vec1 - offsetFlight), new Vector3D(3.0,3.0,3.0));
+            isReached = SmallThan(ctrlFlight.GetPosition() - targetVector, new Vector3D(5.0,5.0,5.0));
             flightOn = !isReached;
             if(isReached) {
                 mode = "done";

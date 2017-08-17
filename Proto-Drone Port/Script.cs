@@ -1,17 +1,96 @@
-﻿IMyRadioAntenna antenna;
+﻿const String VERSION = "1.0.0";
+const String DATA_FORMAT = "1.0";
+
+/**
+* Key value memory.
+*/
+public class ConfigValue
+{ 
+    public String Key; 
+    public String Value; 
+     
+    public ConfigValue(String data)  
+    { 
+        var parts = data.Split('='); 
+        Key = parts[0]; 
+        Value = parts[1]; 
+    } 
+    public ConfigValue(String key, string value)  
+    { 
+        Key = key; 
+        Value = value; 
+    } 
+     
+    public override String ToString()
+    { 
+        return Key + '=' + Value; 
+    } 
+}
+/**
+* Load storage into config memory.
+*/
+public void LoadConfigFromCustomData()
+{ 
+    
+    string data = Me.CustomData;
+    
+    if (data.Length > 0) { 
+        String[] configs = data.Split('\n'); 
+        
+        if(configs[0] != "FORMAT v" + DATA_FORMAT) {
+            Echo("Error: Config is not in Format: FORMAT v" + DATA_FORMAT);
+            return;
+        }
+        
+        for(int i = 1; i < configs.Length; i++) {
+            String line = configs[i]; 
+            if (line.Length > 0) {
+                string[] parts = line.Split('=');
+                if(parts.Length != 2) continue;
+                GetConfig(parts[0].Trim()).Value = parts[1].Trim();
+            }
+        } 
+    } 
+} 
+ 
+/**
+* Search/Create a config memory block.
+*/
+public ConfigValue GetConfig(String key) {
+    ConfigValue config = Config.Find(x => x.Key == key);
+    if(config != null) return config;
+     
+    ConfigValue newValue = new ConfigValue(key, String.Empty); 
+    Config.Add(newValue); 
+    return newValue; 
+} 
+
+// The central configuration.
+List<ConfigValue> Config = new List<ConfigValue>(); 
+
+IMyRadioAntenna antenna;
 IMyTextPanel debug;
+IMyTerminalBlock connector;
+String InfoName = "";
 
 public Program() {
-    // The constructor, called only once every session and
-    // always before any other method is called. Use it to
-    // initialize your script. 
-    //     
-    // The constructor is optional and can be removed if not
-    // needed.
+    
+}
+
+public void initProgram() {
     List<IMyRadioAntenna> Antennas = new List<IMyRadioAntenna>();
     GridTerminalSystem.GetBlocksOfType<IMyRadioAntenna>(Antennas);
-    antenna = Antennas[0];
-    debug = GetBlockByName("[DEBUG]") as IMyTextPanel;
+    int i;
+    for(i = 0; i < Antennas.Count; i++) {
+        if (Antennas[i].CubeGrid == Me.CubeGrid) {
+            antenna = Antennas[i];
+            i = Antennas.Count;
+        }
+    }
+    LoadConfigFromCustomData();
+    debug = GetBlockByName(GetConfig("Debug").Value) as IMyTextPanel;
+    connector = GetBlockByName(GetConfig("Connector").Value) as IMyTerminalBlock;
+    InfoName = GetConfig("InfoName").Value;
 }
 
 public void Save() {
@@ -25,23 +104,24 @@ public void Save() {
 
 public void Main(string argument) {
     Echo("RUN:"+argument);
-    // The main entry point of the script, invoked every time
-    // one of the programmable block's Run actions are invoked.
-    // 
-    // The method itself is required, but the argument above
-    // can be removed if not needed.
-    IMyTerminalBlock connector = GetBlockByName("[DropPort]");
-    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,0));
+
+    if(connector == null || InfoName == "") {
+        initProgram();
+        if(connector == null || InfoName == "") {
+            Echo ("Missing correct config of 'Connector' and 'InfoName'.");
+            return;
+        }
+    }
+
+    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,5));
     
     Vector3D  pos2 = connector.GetPosition();
     Vector3D  pos3 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-1,0));
     pos2 += (pos3 - pos2)  * 0.7;
 
-    //pos2 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,2,0));
-
-    var sendString = "PORT|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
-    bool sent = antenna.TransmitMessage(sendString); //, MyTransmitTarget.Everyone);
-    debug.WritePublicText(sendString);
+    var sendString = InfoName + "|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
+    bool sent = antenna.TransmitMessage(sendString); 
+    if(debug != null) debug.WritePublicText(sendString);
 }
 
 
