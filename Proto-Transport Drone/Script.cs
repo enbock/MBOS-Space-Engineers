@@ -173,6 +173,11 @@ public void Main(string argument) {
                 // detect if it current position.
                 if(isLocked && targetPosition == "NONE" && Vector3D.Distance(ctrlFlight.GetPosition(), dockTarget - offsetDock) < TargetTolerance) {
                     targetPosition = args[0];
+                } else if(!isLocked && targetPosition == "NONE") {
+                    // flight to first received position after restart the script
+                    targetPosition = args[0];
+                    need = "DOCK";
+                    mode = "none";
                 }
             }
             break;
@@ -250,6 +255,8 @@ public void Main(string argument) {
 
 }
 
+int dockAbortCounter = 0;
+double lastDockDistance = 0.0;
 public void DoFlightAndDock()
 {
     if(! receivedPosition.ContainsKey(targetPosition)) {
@@ -271,7 +278,6 @@ public void DoFlightAndDock()
     {
         case "none":
             if (!isLocked) {
-                Echo ("Go in flight..."); 
                 targetVector = flightTarget;
                 ctrlFlight.ClearWaypoints();
                 ctrlFlight.AddWaypoint(targetVector, "Flight to");
@@ -284,8 +290,6 @@ public void DoFlightAndDock()
             flightOn = !isReached;
 
             if (isReached) {
-                Echo ("Go in docking..."); 
-                
                 targetVector = dockTarget;
                 dockOn = true;
                 mode = "docking";
@@ -295,25 +299,35 @@ public void DoFlightAndDock()
             break;
         case "docking":
             Vector3D DockDifference = targetVector - ctrlDock.GetPosition();
-            Echo("D: "+DockDifference);
+            double distance = Vector3D.Distance(ctrlDock.GetPosition(),targetVector);
             if (connector.Status == MyShipConnectorStatus.Connectable) {
-                Echo ("Locking"); 
                 if(connector.Status != MyShipConnectorStatus.Connected) connector.GetActionWithName("SwitchLock").Apply(connector);
                 mode = "goCharge";
             } else {
                 if (!ctrlDock.IsAutoPilotEnabled) {
                     ctrlDock.ClearWaypoints();
                     Vector3D newPos = dockTarget - DockDifference * 5;
-                    if(Vector3D.Distance(ctrlFlight.GetPosition(), newPos) < 20) {
+                    if(Vector3D.Distance(ctrlDock.GetPosition(), newPos) < 20) {
                         targetVector = newPos;
                     } else {
                         // ups...to much accumulated...back to target.
                         targetVector = dockTarget;
                     }
-                    Echo("Correct dock position...");
                     ctrlDock.AddWaypoint(targetVector, "Dock(Corrected)");
                     dockOn = true;
+                } else {
+                    double diff = lastDockDistance - distance;
+                    if (diff >= -0.1 && diff <= 0.1) {
+                        dockAbortCounter++;
+                    } else {
+                        dockAbortCounter = 0;
+                    }
+                    Echo("Abort Counter: "+dockAbortCounter+"("+diff+")");
+                    if(dockAbortCounter >= 10) {
+                        dockOn = false;
+                    }
                 }
+                lastDockDistance = distance;
                 dockOn = true;
             }
             break;
