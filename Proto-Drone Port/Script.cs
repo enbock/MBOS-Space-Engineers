@@ -121,8 +121,6 @@ public void Main(string argument) {
     Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - RelativeFlightTarget);
     
     Vector3D  pos2 = connector.GetPosition();
-    Vector3D  pos3 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-1,0));
-    pos2 += (pos3 - pos2)  * 0.75;
 
     var sendString = InfoName + "|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
     bool sent = antenna.TransmitMessage(sendString); 

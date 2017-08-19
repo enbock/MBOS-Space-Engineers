@@ -255,8 +255,6 @@ public void Main(string argument) {
 
 }
 
-int dockAbortCounter = 0;
-double lastDockDistance = 0.0;
 public void DoFlightAndDock()
 {
     if(! receivedPosition.ContainsKey(targetPosition)) {
@@ -298,36 +296,15 @@ public void DoFlightAndDock()
             }
             break;
         case "docking":
-            Vector3D DockDifference = targetVector - ctrlDock.GetPosition();
-            double distance = Vector3D.Distance(ctrlDock.GetPosition(),targetVector);
             if (connector.Status == MyShipConnectorStatus.Connectable) {
                 if(connector.Status != MyShipConnectorStatus.Connected) connector.GetActionWithName("SwitchLock").Apply(connector);
                 mode = "goCharge";
             } else {
-                if (!ctrlDock.IsAutoPilotEnabled) {
-                    ctrlDock.ClearWaypoints();
-                    Vector3D newPos = dockTarget - DockDifference * 5;
-                    if(Vector3D.Distance(ctrlDock.GetPosition(), newPos) < 20) {
-                        targetVector = newPos;
-                    } else {
-                        // ups...to much accumulated...back to target.
-                        targetVector = dockTarget;
-                    }
-                    ctrlDock.AddWaypoint(targetVector, "Dock(Corrected)");
-                    dockOn = true;
-                } else {
-                    double diff = lastDockDistance - distance;
-                    if (diff >= -0.1 && diff <= 0.1) {
-                        dockAbortCounter++;
-                    } else {
-                        dockAbortCounter = 0;
-                    }
-                    Echo("Abort Counter: "+dockAbortCounter+"("+diff+")");
-                    if(dockAbortCounter >= 10) {
-                        dockOn = false;
-                    }
-                }
-                lastDockDistance = distance;
+                Vector3D DockDifference = dockTarget - ctrlDock.GetPosition();
+                double distance = Vector3D.Distance(ctrlDock.GetPosition(), dockTarget);
+                ctrlDock.ClearWaypoints();
+                targetVector = dockTarget;
+                ctrlDock.AddWaypoint(targetVector, "Dock " + Math.Round(distance));
                 dockOn = true;
             }
             break;
@@ -341,7 +318,7 @@ public void DoFlightAndDock()
     }
     if(ctrlFlight.IsAutoPilotEnabled != flightOn) 
     {
-        Echo("AutoPilot Flight "+(dockOn?"enabled":"disabled"));
+        Echo("AutoPilot Flight "+(flightOn?"enabled":"disabled"));
         ctrlFlight.SetAutoPilotEnabled(flightOn);
     }
     // Don't trrn dock on, if flight already on
@@ -458,10 +435,8 @@ public void DoChargeAction()
     foreach(IMyCargoContainer container in cargo) {
         if(container.CubeGrid == Me.CubeGrid) {
             IMyInventory inventory = container.GetInventory(0);
-            isEmpty = inventory.GetItems().Count ==  0;
-            if(!isEmpty) {
-                left += (double)inventory.CurrentVolume;
-            }
+            isEmpty = isEmpty && (double)inventory.GetItems().Count == 0;
+            left +=  (double)inventory.CurrentVolume;
         }
     }
     Echo("Cargos are " + (isEmpty ? "empty." : "not empty (" + Math.Round(left*1000.0,2) + " L left)."));
@@ -474,10 +449,8 @@ public void DoChargeAction()
     double power = 0;
     foreach(IMyBatteryBlock battery in batteries) {
         if(battery.CubeGrid == Me.CubeGrid) {
-            isCharged = battery.CurrentStoredPower ==  battery.MaxStoredPower;
-            if(!isCharged) {
-                power += (double)battery.MaxStoredPower - (double)battery.CurrentStoredPower;
-            }
+            isCharged = isCharged && battery.CurrentStoredPower ==  battery.MaxStoredPower;
+            power += (double)battery.MaxStoredPower - (double)battery.CurrentStoredPower;
         }
     }
     Echo("Batteries are " + (isCharged ? "charged." : "not full (" + Math.Round(power,2) + " MWh left)."));
@@ -498,10 +471,8 @@ public void DoLoadAction()
     foreach(IMyCargoContainer container in cargo) {
         if(container.CubeGrid == Me.CubeGrid) {
             IMyInventory inventory = container.GetInventory(0);
-            isFull = (double)inventory.CurrentVolume >=  (double)inventory.MaxVolume * 0.8;
-            if(!isFull) {
-                left += (double)inventory.MaxVolume - (double)inventory.CurrentVolume;
-            }
+            isFull = isFull && (double)inventory.CurrentVolume >=  (double)inventory.MaxVolume * 0.8;
+            left += (double)inventory.MaxVolume - (double)inventory.CurrentVolume;
         }
     }
     Echo("Cargos are " + (isFull ? "full." : "not full (" + Math.Round(left*1000.0,2) + " L left)."));
