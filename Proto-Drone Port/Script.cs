@@ -72,10 +72,9 @@ IMyRadioAntenna antenna;
 IMyTextPanel debug;
 IMyTerminalBlock connector;
 String InfoName = "";
+Vector3I RelativeFlightTarget = new Vector3I(6, -20, 0);
 
-public Program() {
-    
-}
+public Program() {}
 
 public void initProgram() {
     List<IMyRadioAntenna> Antennas = new List<IMyRadioAntenna>();
@@ -91,6 +90,12 @@ public void initProgram() {
     debug = GetBlockByName(GetConfig("Debug").Value) as IMyTextPanel;
     connector = GetBlockByName(GetConfig("Connector").Value) as IMyTerminalBlock;
     InfoName = GetConfig("InfoName").Value;
+
+    String FlightTarget = GetConfig("FlightTarget").Value;
+    if (FlightTarget != "") {
+        string[] coords = FlightTarget.Split(',');
+        RelativeFlightTarget = new Vector3I(float.Parse(coords[0]),float.Parse(coords[1]),float.Parse(coords[2]));
+    }
 }
 
 public void Save() {
@@ -113,11 +118,11 @@ public void Main(string argument) {
         }
     }
 
-    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-10,5));
+    Vector3D  pos = Me.CubeGrid.GridIntegerToWorld(connector.Position - RelativeFlightTarget);
     
     Vector3D  pos2 = connector.GetPosition();
     Vector3D  pos3 = Me.CubeGrid.GridIntegerToWorld(connector.Position - new Vector3I(0,-1,0));
-    pos2 += (pos3 - pos2)  * 0.7;
+    pos2 += (pos3 - pos2)  * 0.75;
 
     var sendString = InfoName + "|"+pos.X+"|"+pos.Y+"|"+pos.Z+ "|"+pos2.X+"|"+pos2.Y+"|"+pos2.Z;
     bool sent = antenna.TransmitMessage(sendString); 
