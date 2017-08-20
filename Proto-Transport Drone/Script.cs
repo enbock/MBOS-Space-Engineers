@@ -121,7 +121,7 @@ public void Main(string argument) {
         if(connector == null || ctrlFlight == null || ctrlDock == null || nextPosition.Count == 0 ||  action.Count == 0) {
             Echo("Missing one of the configuration Values: 'Connector', 'FlightControl', 'DockControl', 'NextPosition', 'Action");
             Echo("  Syntax of NextPosition:  FROM:TO,FROM:TO,...");
-            Echo("  Syntax of NextactionPosition:  POSITION:ACTION,POSITION:ACTION,...");
+            Echo("  Syntax of Action:  POSITION:ACTION,POSITION:ACTION,...");
             Echo("     Actions available: LOAD, CHARGE");
             return;
         }
@@ -288,11 +288,7 @@ public void DoFlightAndDock()
             flightOn = !isReached;
 
             if (isReached) {
-                targetVector = dockTarget;
-                dockOn = true;
                 mode = "docking";
-                ctrlDock.ClearWaypoints();
-                ctrlDock.AddWaypoint(targetVector, "Dock");
             }
             break;
         case "docking":
