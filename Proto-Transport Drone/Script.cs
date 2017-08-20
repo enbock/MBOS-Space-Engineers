@@ -78,9 +78,14 @@ Vector3D targetVector = new Vector3D();
 Vector3D offsetFlight = new Vector3D();
 Vector3D offsetDock = new Vector3D();
 bool isLocked = false;
-double TargetTolerance = 4.0;
+double TargetTolerance = 15.0;
 Dictionary<string,string> nextPosition = new Dictionary<string,string>();
 Dictionary<string,string> action = new Dictionary<string,string>();
+int LoadActionCounter = 0;
+double FlightDistance = 0.0;
+int TimeAfterDock = 0;
+int TimeAfterUndock = 0;
+int TimeAfterFlight = 0;
 
 // Received positions
 Dictionary<string, List<Vector3D>> receivedPosition = new Dictionary<string, List<Vector3D>>();
@@ -97,6 +102,7 @@ public void initProgram() {
 
     LoadMap(nextPosition, GetConfig("NextPosition").Value);
     LoadMap(action, GetConfig("Action").Value);
+    InitLightShow();
 }
 
 public void LoadMap(Dictionary<string, string> list, string data) {
@@ -132,8 +138,13 @@ public void Main(string argument) {
 
     isLocked = connector.Status == MyShipConnectorStatus.Connected;
 
-    offsetFlight = connector.GetPosition() - ctrlFlight.GetPosition();
-    offsetDock = connector.GetPosition() - ctrlDock.GetPosition();
+    Vector3D relationPosition = connector.CubeGrid.GridIntegerToWorld(connector.Position + new Vector3I(0, -4, 0));
+    offsetFlight = relationPosition - ctrlFlight.GetPosition();
+    offsetDock = relationPosition - ctrlDock.GetPosition();
+
+    TimeAfterDock++;
+    TimeAfterUndock++;
+    TimeAfterFlight++;
 
     switch(args[0])
     {
@@ -201,11 +212,10 @@ public void Main(string argument) {
             break;
     }
 
-    // Decider
+    // Decider for next command
     if (mode == "done") {
         DisableAutoPilot();
 
-        // Nächster befehl
         switch(need)
         {
             case "UNDOCK":
@@ -217,6 +227,8 @@ public void Main(string argument) {
                 }
                 break;
             case "DOCK":
+                LoadActionCounter = 0;
+                TimeAfterDock =  0;
                 if(action.ContainsKey(targetPosition)) {
                     need = action[targetPosition];
                     mode = "none";
@@ -231,15 +243,24 @@ public void Main(string argument) {
             case "CHARGE":
                 need = "UNDOCK";
                 mode = "none";
+                TimeAfterUndock =  0;
                 break;
             case "LOAD":
                 need = "UNDOCK";
                 mode = "none";
+                TimeAfterUndock =  0;
                 break;
         }
     }
 
-    Echo("Distance: " + Math.Round(Vector3D.Distance(ctrlFlight.GetPosition(), targetVector), 2));
+    FlightDistance = Vector3D.Distance(ctrlFlight.GetPosition(), targetVector);
+    LightShow();
+    /* 
+    Echo ("AfterFlight: " + TimeAfterFlight);
+    Echo ("AfterDock: " + TimeAfterDock);
+    Echo ("AfterUndock: " + TimeAfterUndock);
+    */
+    Echo("Distance: " + Math.Round(FlightDistance, 2));
     Echo("Need: " + need); 
     Echo("Target: " + targetPosition); 
     Echo("Mode: " + mode);
@@ -289,6 +310,7 @@ public void DoFlightAndDock()
 
             if (isReached) {
                 mode = "docking";
+                TimeAfterFlight = 0;
             }
             break;
         case "docking":
@@ -457,6 +479,7 @@ public void DoChargeAction()
     }
 }
 
+double LoadActionOldLeft = 0.0;
 public void DoLoadAction() 
 {
     // Check cargo
@@ -473,5 +496,96 @@ public void DoLoadAction()
     }
     Echo("Cargos are " + (isFull ? "full." : "not full (" + Math.Round(left*1000.0,2) + " L left)."));
 
-    mode = isFull ? "done" : "wait";
+    LoadActionCounter++;
+    if(left != LoadActionOldLeft) {
+        LoadActionCounter = 0;
+        LoadActionOldLeft = left;
+    }
+
+    Echo("Start countdown: " + (120 - LoadActionCounter));
+    //(i) Also, limit to 120s to wait, after last cargo change
+    mode = isFull || LoadActionCounter > 120 ? "done" : "wait";
+}
+
+List<IMyInteriorLight> AnimatedLights = new List<IMyInteriorLight>();
+List<IMyReflectorLight> SpotLights = new List<IMyReflectorLight>();
+List<IMyLightingBlock> ConnectorLights = new List<IMyLightingBlock>();
+public void InitLightShow()
+{
+    IMyLightingBlock light;
+    String lightPrefix = GetConfig("AnitmatedLightPrefix").Value;
+    if(lightPrefix == "") {
+        Echo("No 'AnitmatedLightPrefix' found.");
+        return;
+    }
+    AnimatedLights.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyInteriorLight>(AnimatedLights);
+    if(AnimatedLights.Count == 0) {
+        Echo("No Anitmated Lights found.");
+        return;
+    }
+    for(int i = AnimatedLights.Count -1; i>= 0; i--) {
+        light = AnimatedLights[i];
+        if(light.CubeGrid != Me.CubeGrid || light.CustomName.IndexOf(lightPrefix, StringComparison.Ordinal) != 0) {
+            AnimatedLights.Remove(light as IMyInteriorLight);
+        }
+    }
+    
+    GridTerminalSystem.GetBlocksOfType<IMyReflectorLight>(SpotLights);
+    for(int i = SpotLights.Count -1; i>= 0; i--) {
+        light = SpotLights[i];
+        if(light.CubeGrid != Me.CubeGrid) {
+            SpotLights.Remove(light as IMyReflectorLight);
+        }
+    }
+
+    String connectorLightName = GetConfig("ConnectorLight").Value;
+    GridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(ConnectorLights);
+    for(int i = ConnectorLights.Count -1; i>= 0; i--) {
+        light = ConnectorLights[i];
+        if(light.CubeGrid != Me.CubeGrid || light.CustomName != connectorLightName) {
+            ConnectorLights.Remove(light);
+        }
+    }
+}
+
+
+public void LightShow()
+{
+    int i;
+
+    Color color = new Color(255, 255, 255);
+    // colo settings
+    if(TimeAfterUndock == 0 || isLocked) {
+        color = new Color(0,255,0);
+    }  else if (!(mode == "flight" && need == "DOCK")) {
+        color = new Color(255, 255, 0);
+    }
+
+    // Interval settings
+    float newInterval = (float)FlightDistance / 20f;
+    newInterval = newInterval > 2f ? 2f : newInterval;
+    newInterval = newInterval <  0.2f ?  0.2f : newInterval;
+    if(TimeAfterDock > 0 && isLocked) newInterval = 0f;
+
+    // Apply
+    for(i = 0; i< AnimatedLights.Count; i++) {
+        IMyInteriorLight light = AnimatedLights[i];
+        light.SetValue("Blink Interval", newInterval);
+        light.SetValue("Color", color);
+    }
+
+    // Turn on/off spot lights
+    bool isON = !isLocked && ((mode == "docking" && FlightDistance > 15 ) || (need == "DOCK" && mode == "none") || mode == "flight" || need == "UNDOCK");
+    for(i = 0; i < SpotLights.Count; i++) {
+        IMyReflectorLight spotLight = SpotLights[i];
+        spotLight.GetActionWithName(isON ? "OnOff_On" : "OnOff_Off").Apply(spotLight);
+    }
+
+    // Turn on/off connector lights
+    isON = !isLocked  && mode == "docking";
+    for(i = 0; i < ConnectorLights.Count; i++) {
+        IMyLightingBlock connectorLight = ConnectorLights[i];
+        connectorLight.GetActionWithName(isON ? "OnOff_On" : "OnOff_Off").Apply(connectorLight);
+    }
 }
