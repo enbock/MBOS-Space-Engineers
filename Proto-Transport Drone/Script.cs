@@ -138,7 +138,7 @@ public void Main(string argument) {
 
     isLocked = connector.Status == MyShipConnectorStatus.Connected;
 
-    Vector3D relationPosition = connector.CubeGrid.GridIntegerToWorld(connector.Position + new Vector3I(0, -4, 0));
+    Vector3D relationPosition = connector.CubeGrid.GridIntegerToWorld(connector.Position + new Vector3I(0, -2, 0));
     offsetFlight = relationPosition - ctrlFlight.GetPosition();
     offsetDock = relationPosition - ctrlDock.GetPosition();
 
@@ -231,6 +231,9 @@ public void Main(string argument) {
                 TimeAfterDock =  0;
                 if(action.ContainsKey(targetPosition)) {
                     need = action[targetPosition];
+                    if(need == "CHARGE") {
+                        switchBatteries(false);
+                    }
                     mode = "none";
                 }
                 break;
@@ -329,7 +332,6 @@ public void DoFlightAndDock()
         case "goCharge":
             if (isLocked) {
                 switchEngines(false);
-                switchBatteries();
                 mode = "done";
             }
             break;
@@ -365,7 +367,7 @@ public void DoUndock()
         case "none":
             if(isLocked) {
                 switchEngines(true);
-                switchBatteries();
+                switchBatteries(true);
                 connector.GetActionWithName("SwitchLock").Apply(connector);
                 flightOn = false;
             } else {
@@ -388,6 +390,9 @@ public void DoUndock()
     ctrlFlight.SetAutoPilotEnabled(flightOn);
 }
 
+/**
+ * Switch thruster on/off.
+ */
 public void switchEngines(bool enabled)
 {
     List<IMyThrust> thrusters = new List<IMyThrust>();
@@ -401,14 +406,19 @@ public void switchEngines(bool enabled)
     }
 }
 
-public void switchBatteries()
+/**
+ * Turn batteries on/off.
+ * Off means recharge and On means discharge.
+ */
+public void switchBatteries(bool enabled)
 {
     List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
     for(var i = 0; i < batteries.Count; i++) {
         IMyBatteryBlock battery = batteries[i];
         if (battery.CubeGrid  == Me.CubeGrid) {
-            battery.GetActionWithName("Recharge").Apply(battery);
+            battery.OnlyRecharge = !enabled;
+            battery.OnlyDischarge = enabled;
         }
     }
 }
