@@ -5,22 +5,19 @@ The core module which handles the execution rythm and stores the configuration.
 ## Requirements
 * Timer Block
  * Setup Programmable Block with `run` action and **empty** argument.
-* LCD Block
+* Display Block (optional since v2.0)
 
 ## The first run
 On the first run, set the `argument` with follow syntax
 
-    <Name of LCD>[, <Name of timer block>]
+    <Name of Display>[, <Name of timer block>]
     
  Example:
  
-    MBOS: Core, MBOS: Timer
-
-Alternativly can the timer block also been configured in the LCD private text.
+    MBOS: Debug, MBOS: Timer
 
 ## Configuration
-All existent configuration will are modifyable on the config LCD screen.
-The Core supports one screen.
+All existent configuration will are modifyable on the custom data.
 
 One the configuration is set, the core store it on the process storage and is
 imedialy available on cores first run after loading the level(no booting time
@@ -40,8 +37,8 @@ Is the `FORMAT` tag in other format, then the whole configuration will be
 cleared.
 
 ### Config Values
-#### ConfigLCD 
-since: v0.2.0 
+#### Display 
+since: v2.0.0 
 
 `BlockId` of the config screen. 
 
@@ -53,9 +50,10 @@ since: v0.2.0
 #### RunMode 
 since: v0.2.0 
 
-Value Syntax: `{fast|normal}` 
+Value Syntax: `{fast|normal|call|callFast}` 
 
-Switch between fast and normal operation mode. 
+Switch between fast and normal operation mode.    
+(since v2.0.0) The call modes are stopping the timer if no call in stack.
 
 #### RegisteredModules 
 since: v0.3.0 
@@ -130,14 +128,14 @@ Time based invoke of the module.
 * `BlockId` is the Core which invokes. 
 * `RunCount` is the loop counter number of Core.
 
-## Get ConfigLCD Id
+## Get Display Id
 
-    API://GetConfigLCD/<BlockId>
+    API://GetDisplay/<BlockId>
     
 `BlockId` requested the id of the Config LCD Panel.
 
 The core answers with:
 
-    API://ConfigLCD/<LCDId>/<BlockId>
+    API://Display/<DCisplayId>/<BlockId>
     
-The `LCDId` is the LCD block identifier. The `BlockId` is the core identifier.
+The `DisplayId` is the Display block identifier. The `BlockId` is the core identifier.

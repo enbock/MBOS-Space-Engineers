@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.0.0";
+﻿const String VERSION = "1.1.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -6,7 +6,7 @@ const String DATA_FORMAT = "1.0";
 */
 public class Module {
     public IMyProgrammableBlock Block;
-    public IMyTextPanel ConfigLCD;
+    public IMyTextPanel Display;
     public int CurrentCount = 0;
     public int LastCount = -1;
     
@@ -73,8 +73,8 @@ public Program()
     IMyTerminalBlock module; 
     Module core;
 
-    if (Storage.Length == 0) return;
-    String[] store = Storage.Split('\n');
+    if (Me.CustomData.Length == 0) return;
+    String[] store = Me.CustomData.Split('\n');
     if(store[0] != "FORMAT v" + DATA_FORMAT) return;
     Registered.Clear();
     String[] cores = store[1].Split('#');
@@ -83,7 +83,7 @@ public Program()
         module = GetBlock(ids[0]);
         if(module != null) {
             core = new Module((IMyProgrammableBlock) module);
-            if(ids.Length > 1) core.ConfigLCD = GetBlock(ids[1]) as IMyTextPanel;
+            if(ids.Length > 1) core.Display = GetBlock(ids[1]) as IMyTextPanel;
             Registered.Add(core);
         }
     }
@@ -93,14 +93,14 @@ public Program()
         String data = store[i]; 
         if (data.Length == 0) continue;
         String[] parts = data.Split('='); 
-        EventList l = new EventList(parts[0]);
+        EventList eventList = new EventList(parts[0]);
         String[] ids = parts[1].Split('#');
         foreach(String id in ids) {
             module = GetBlock(id);
             if(module != null) 
-                l.Observers.Add(new Module((IMyProgrammableBlock) module));
+                eventList.Observers.Add(new Module((IMyProgrammableBlock) module));
         }
-        RegisteredEvents.Add(l);
+        RegisteredEvents.Add(eventList);
     } 
 
     DetailedInfo();
@@ -121,7 +121,7 @@ public void Save()
         list += String.Join("#", modules.ToArray()) + "\n";
     }
     
-    Storage = "FORMAT v" + DATA_FORMAT + "\n"
+    Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n"
         +  FormatRegisteredCores() + "\n"
         + list
     ;
@@ -132,7 +132,7 @@ public String FormatRegisteredCores()
     List<String> modules = new List<String>();
     foreach(Module core in Registered) modules.Add(
         core.ToString()
-        + "*" + (core.ConfigLCD != null ? GetId(core.ConfigLCD) : "")
+        + "*" + (core.Display != null ? GetId(core.Display) : "")
     );
     return String.Join("#", modules.ToArray());
 }
@@ -144,7 +144,7 @@ String lastArg = "";
 public void Main(string argument)
 {
     //Echo("> " + lastArg);
-    //Echo("> " + argument);
+    Echo(argument);
     lastArg = argument;
     
     // clear buffer
@@ -191,7 +191,11 @@ public String DumpEventList()
     string dump = "[Bus v" + VERSION + "] " 
         + "Registered Events:\n";
     foreach(EventList list in RegisteredEvents) {
-        dump += "  " + list.Key + ": " +list.Observers.Count + "\n";
+        dump += "  " + list.Key + ": " +list.Observers.Count +"(";
+        foreach(Module block in list.Observers) {
+            dump += block.Block.CustomName + " ";
+        }
+        dump += ")\n";
     }
     
     return dump;
@@ -213,7 +217,7 @@ public void ApplyAPICommunication(String apiInput)
                 if (Registered.Exists(x => x.Block == block)) break;
                 core = new Module(block);
                 Registered.Add(core);
-                core.ConfigLCD = GetBlock(arg[2]) as IMyTextPanel;
+                core.Display = GetBlock(arg[2]) as IMyTextPanel;
             }
             break;
         case "Removed": // external core removal
@@ -287,8 +291,8 @@ public List<Module> FindCores() {
             String[] info = (blocks[i].DetailedInfo).Split('\n');
             Module core = new Module((IMyProgrammableBlock)blocks[i]);
             foreach(String j in info) {
-                if(j.IndexOf("ConfigLCD=") == 0) {
-                    core.ConfigLCD = GetBlock((j.Split('='))[1]) as IMyTextPanel;
+                if(j.IndexOf("Display=") == 0) {
+                    core.Display = GetBlock((j.Split('='))[1]) as IMyTextPanel;
                 }
             }
             result.Add(core);
@@ -304,12 +308,12 @@ public List<Module> FindCores() {
 public void Output(String text)
 {
     foreach(Module core in Registered) {
-        if (core.ConfigLCD == null) {
+        if (core.Display == null) {
             Echo(core.ToString() + " has no LCD.");
             continue;
         }
         if (core.LastCount != core.CurrentCount) {
-            core.ConfigLCD.WritePublicText(text, true);
+            core.Display.WritePublicText(text, true);
             core.LastCount = core.CurrentCount;
         }
     }
@@ -409,11 +413,7 @@ public void DispatchEvent(string eventName, string sender, string data)
 */
 public void AddCall(String blockId, String argument) {
     foreach(Module core in Registered) {
-        if (core.ConfigLCD == null) {
-            Echo(core.ToString() + " has no LCD.");
-            continue;
-        }
-        String configText = core.ConfigLCD.GetPrivateText();
+        String configText = core.Block.CustomData;
 
         if (configText.Length > 0) { 
             String data = "";
@@ -442,9 +442,10 @@ public void AddCall(String blockId, String argument) {
                 }
             } 
 
-            core.ConfigLCD.WritePrivateText(data, false);
+            core.Block.CustomData = data;
+            core.Block.TryRun("");
         } else {
-            Echo("Missing config data in LCD of core:" + core.ToString());
+            Echo("Missing config in Custom Data of core:" + core.ToString());
         }
     }
 }

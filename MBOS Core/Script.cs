@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.3";
+﻿const String VERSION = "2.0.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -85,7 +85,7 @@ public void Main(string argument)
     Blocks.Clear();
     LastCalled.Clear();
     
-    LoadConfigFromConfigLCD();
+    LoadFromCustomData();
     StopTimer();
     if(Modules.Count == 0) LoadModules();
     
@@ -103,8 +103,8 @@ public void Main(string argument)
     CountRun(); 
     
     OutputToConsole();
-    OutputToConfigLcd();
-    OutputDebugToConfigLcd();
+    StoreToCustomData();
+    OutputDebug();
     
     InvokeModules();
     
@@ -182,7 +182,7 @@ public void ReadArgument(String args)
     String[] parts = args.Split(','); 
     if (parts.Length >= 1 && parts[0].Length > 0) {
         block = GetBlockByName(parts[0].Trim());
-        if(block != null) GetConfig("ConfigLCD").Value = GetId(block);
+        if(block != null) GetConfig("Display").Value = GetId(block);
     } 
     if (parts.Length >= 2 && parts[1].Length > 0) {
         block = GetBlockByName(parts[1].Trim());
@@ -218,9 +218,22 @@ public void StartTimer()
     if (runMode.Value == String.Empty) runMode.Value = "normal";
     IMyTimerBlock timer = GetBlock(GetConfig("MainTimer").Value) as IMyTimerBlock; 
     if(timer != null) {
-        timer.ApplyAction(
-            runMode.Value == "fast" ? "TriggerNow" : "Start"
-        );
+        String value = "Start";
+        switch(runMode.Value) {
+            case "fast":
+                value = "TriggerNow";
+                break;
+            case "call":
+                value = GetConfig("CallStack").Value == String.Empty ? "Stop" : "Start";
+                break;
+            case "callFast":
+                value = GetConfig("CallStack").Value == String.Empty ? "Stop" : "TriggerNow";
+                break;
+            default:
+                value = "Start";
+                break;
+        }
+        timer.ApplyAction(value);
     } 
 } 
 
@@ -242,29 +255,23 @@ public void StopTimer()
 /**
 * Stores the config memory on the config lcd.
 */
-public void OutputToConfigLcd()
+public void StoreToCustomData()
 {
-    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
-    if(lcd == null) {
-        Echo ("No config screen found.");
-        return;
-    }
-    
     List<ConfigValue> configs = new List<ConfigValue>();
     foreach(ConfigValue i in Config) {
         if (i.Key != "RunCount")
             configs.Add(i);
     }
     
-    lcd.WritePrivateText(FormatConfig(configs), false);
+    Me.CustomData = FormatConfig(configs);
 }
 
 /**
 * Begin debug output in config screen.
 */
-public void OutputDebugToConfigLcd()
+public void OutputDebug()
 {
-    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
+    IMyTextPanel lcd = GetBlock(GetConfig("Display").Value) as IMyTextPanel; 
     if(lcd == null) {
         return;
     }
@@ -292,14 +299,14 @@ public void OutputDebugToConfigLcd()
 */
 public void OutputToConsole()
 {
-    string lcd = GetConfig("ConfigLCD").Value; 
+    string lcd = GetConfig("Display").Value; 
 
     Echo(
         "MODULE=Core\n"
         + "VERSION=" + VERSION + "\n"
         + "ID=" + GetMyId() + "\n"
         + "Count=" + GetConfig("RunCount").Value + "\n"
-        + (lcd != String.Empty ? "ConfigLCD=" + lcd + "\n" : "")
+        + (lcd != String.Empty ? "Display=" + lcd + "\n" : "")
         + "RegisteredModules=" + Modules.Count + "\n"
     );
 }
@@ -308,14 +315,9 @@ public void OutputToConsole()
 /**
 * Load storage into config memory.
 */
-public void LoadConfigFromConfigLCD()
+public void LoadFromCustomData()
 { 
-    IMyTextPanel lcd = GetBlock(GetConfig("ConfigLCD").Value) as IMyTextPanel; 
-    if(lcd == null) {
-        return;
-    }
-    
-    string data = lcd.GetPrivateText();
+    string data = Me.CustomData;
     
     if (data.Length > 0) { 
         String[] configs = data.Split('\n'); 
@@ -361,13 +363,13 @@ public void UpdateModulesConfig()
 * Calls:
 *    API://RegisterModule/<BlockId>
 *    API://RemoveModule/<BlockId>
-*    API://GetConfigLCD/<BlockId>
+*    API://GetDisplay/<BlockId>
 */
 public void ApplyAPICommunication(String apiInput)
 {
     string[] stack = apiInput.Replace("API://", "").Split('/');
     Module receiver = null;
-    string lcd = GetConfig("ConfigLCD").Value;
+    string lcd = GetConfig("Display").Value;
     
     switch(stack[0]) {
         case "RegisterModule":
@@ -390,12 +392,12 @@ public void ApplyAPICommunication(String apiInput)
                 );
             }
             break;
-        case "GetConfigLCD":
+        case "GetDisplay":
             IMyTerminalBlock block = GetBlock(stack[1]);
             if (block is IMyProgrammableBlock && lcd != String.Empty) {
                 AddCall(
                     GetId(block)
-                    , "API://ConfigLCD/" + lcd + "/" + GetMyId()
+                    , "API://Display/" + lcd + "/" + GetMyId()
                 );
             }
             break;
@@ -463,7 +465,7 @@ public void InvokeCalls()
     if (CallStack.Count == 0) return;
 
     GetConfig("CallStack").Value = String.Empty;
-    OutputToConfigLcd();
+    StoreToCustomData();
 
     Call call = CallStack[0];
     CallStack.Remove(call);
@@ -477,7 +479,7 @@ public void InvokeCalls()
         LastCalled.Add(call.Block);
 
         // Append new calls of other blocks
-        LoadConfigFromConfigLCD();
+        LoadFromCustomData();
     }
     // Append calls created by Me or other blocks
     List<Call> newCalls = BuildCallStaskFromConfig();

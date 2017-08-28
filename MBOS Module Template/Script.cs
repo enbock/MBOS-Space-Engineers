@@ -1,5 +1,7 @@
+// Module Name
+const String NAME = "TemplateModule";
 // Module version
-const String VERSION = "0.1.0";
+const String VERSION = "0.2.0";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -9,7 +11,7 @@ const String DATA_FORMAT = "1.0";
 public class Module {
     public IMyProgrammableBlock Block;
     // Only for type core.
-    public IMyTextPanel ConfigLCD;
+    public IMyTextPanel Display;
     // Only for type busses.
     public Module Core;
     
@@ -44,7 +46,7 @@ public void Save()
             Bus != null ? (
                 "Bus=" + Bus + "*" + (
                     Bus.Core + "*" + (
-                        Bus.Core.ConfigLCD != null ? GetId(Bus.Core.ConfigLCD) : ""
+                        Bus.Core.Display != null ? GetId(Bus.Core.Display) : ""
                     )
                 ) 
             ) : ""
@@ -60,6 +62,7 @@ public Program()
     if (Storage.Length == 0) return;
     String[] store = Storage.Split('\n');
     foreach(String line in store) {
+        String[] args = line.Split('=');
         if (line.IndexOf("FORMAT") == 0) {
             if(line != "FORMAT v" + DATA_FORMAT) return;
         }
@@ -90,7 +93,7 @@ public void LoadBusFromConfig(String config)
 
     Bus = new Module(bus) { 
         Core = new Module(core) { 
-            ConfigLCD = lcd 
+            Display = lcd 
         } 
     };
 }
@@ -172,8 +175,8 @@ public List<Module> FindCores() {
             String[] info = (blocks[i].DetailedInfo).Split('\n');
             Module core = new Module((IMyProgrammableBlock)blocks[i]);
             foreach(String j in info) {
-                if(j.IndexOf("ConfigLCD=") == 0) {
-                    core.ConfigLCD = GetBlock((j.Split('='))[1]) as IMyTextPanel;
+                if(j.IndexOf("Display=") == 0) {
+                    core.Display = GetBlock((j.Split('='))[1]) as IMyTextPanel;
                 }
             }
             result.Add(core);
@@ -235,11 +238,7 @@ public string GetId(IMyTerminalBlock block)
 * Add a call request to core's call stacks.
 */
 public void AddCall(Module core, String blockId, String argument) {
-    if (core.ConfigLCD == null) {
-        Echo(core.ToString() + " has no LCD.");
-        return;
-    }
-    String configText = core.ConfigLCD.GetPrivateText();
+    String configText = core.Block.CustomData;
 
     if (configText.Length > 0) { 
         String data = "";
@@ -269,9 +268,10 @@ public void AddCall(Module core, String blockId, String argument) {
             }
         } 
 
-        core.ConfigLCD.WritePrivateText(data, false);
+        core.Block.CustomData = data;
+        core.Block.TryRun("");
     } else {
-        Echo("Missing config data in LCD of core:" + core.ToString());
+        Echo("Missing config in CustomData of core:" + core.ToString());
     }
 }
 
@@ -281,7 +281,7 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=TemplateModule\n"
+        "MODULE=" + NAME + "\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
@@ -296,9 +296,9 @@ public void SearchBus()
     List<Module> busses = FindBusses(FindCores());
     if (busses.Count == 0) return;
     Bus = busses[0];
-    /*/
+    //*/
     AddCall(Bus.Core, Bus.ToString(), "API://AddListener/<EVENTNAME_HERE>/" + GetId(Me));
-    /* / // or if needed
+    /*/ // or if needed
     AddCall(Bus.Core, Bus.Core.ToString(), "API://RegisterModule/" + GetId(Me));
     //*/
 }
@@ -310,9 +310,9 @@ public void Uninstall()
 {
     Echo("Uninstall...");
     if (Bus == null) return;
-    /*/
+    //*/
     AddCall(Bus.Core, Bus.ToString(), "API://RemoveListener/<EVENTNAME_HERE>/" + GetId(Me));
-    /* / // or if needed
+    /*/ // or if needed
     AddCall(Bus.Core, Bus.Core.ToString(), "API://RemoveModule/" + GetId(Me));
     //*/
 }
@@ -322,12 +322,12 @@ public void Uninstall()
 */
 public void Output(String text)
 {
-    if (Bus == null || Bus.Core == null || Bus.Core.ConfigLCD == null) {
+    if (Bus == null || Bus.Core == null || Bus.Core.Display == null) {
         Bus = null;
         Echo("No Core LCD to output: "+text);
         return;
     }
-    Bus.Core.ConfigLCD.WritePublicText(text + "\n", true);
+    Bus.Core.Display.WritePublicText(text + "\n", true);
 }
 
 /**
@@ -339,10 +339,16 @@ public void ApplyAPICommunication(String apiInput)
     
     switch(arg[0]) {
         case "Registered": // core validated
-            OnCoreRegistration(arg);
+            OnRegistration(arg);
             break;
         case "Removed": // external core removal
-            OnCoreRemoval(arg);
+            OnRemoval(arg);
+            break;
+        case "ListenerAdded": // core validated
+            OnRegistration(arg);
+            break;
+        case "ListenerRemoved": // external core removal
+            OnRemoval(arg);
             break;
         case "ScheduleEvent": // core call
             OnTimeEvent(arg);
@@ -363,7 +369,7 @@ public void ApplyAPICommunication(String apiInput)
 /**
 * On Core registered.
 */
-public void OnCoreRegistration(String[] arg)
+public void OnRegistration(String[] arg)
 {
     // To something after core registered here ;)
 }
@@ -371,7 +377,7 @@ public void OnCoreRegistration(String[] arg)
 /**
 * From core removed.
 */
-public void OnCoreRemoval(String[] arg)
+public void OnRemoval(String[] arg)
 {
     Bus = null;
 }
@@ -381,7 +387,7 @@ public void OnCoreRemoval(String[] arg)
 */
 public void OnTimeEvent(String[] arg)
 {
-    Output("[Template Module v" + VERSION + "]");
+    Output("[" + NAME + " v" + VERSION + "]");
 }
 
 /**
