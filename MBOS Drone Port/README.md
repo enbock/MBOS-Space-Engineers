@@ -30,15 +30,18 @@ In follow run the script with
 ## Require charging point
 
 * Done: `NEED:CHARGE|<SHIP NAME>`
+* Port: `<SHIP NAME>|CHARGE|<STATION NAME>` (multiple port answers)
+* Drone: `<STATION NAME>|REQUEST|CHARGE|<SHIP NAME>`
 * Port: `<SHIP NAME>|CHARGE|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
+* Port-Error: `<SHIPNAME>|CHARGE|DENIED` (drone restarts now)
 
 ## Require new action
 
 * Drone: `NEED:ACTION|<SHIP NAME>`
-* Port: `<SHIP NAME>|LOAD|<STATION NAME>`
+* Port: `<SHIP NAME>|LOAD|<STATION NAME>` (multiple port answers)
 * Drone: `<STATION NAME>|REQUEST|LOAD|<SHIP NAME>`
 * Port: `<SHIP NAME>|LOAD|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
-* Port-Error: `<SHIPNAME>|LOAD|DENNIED` (drone restarts now)
+* Port-Error: `<SHIPNAME>|LOAD|DENIED` (drone restarts now)
 
 ## Undocking
 
