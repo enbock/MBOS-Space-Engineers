@@ -31,19 +31,85 @@ public class Module {
     } 
 }
 
+/**
+ * Connector port for drone.
+ */
+public class DronePort
+{
+    public int Number;
+    public String Action;
+    public IMyShipConnector Connector;
+    public Vector3D Offset = new Vector3D();
+
+    /**
+     * Create droneport from config string.
+     */
+    public DronePort(String configData, IMyGridTerminalSystem GridTerminalSystem, IMyCubeGrid CubeGrid)
+    {
+        string[] config = configData.Split(':');
+
+        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+        GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(connectors);
+        foreach (IMyShipConnector connector in connectors) {
+            if (connector.CubeGrid == CubeGrid && connector.CustomName == config[3]) {
+                Add(config, connector);
+                break;
+            }
+        }
+    }
+
+    /**
+     * Restore drone port.
+     */
+    public DronePort(IMyShipConnector connector)
+    {
+        Add(connector.CustomData.Split(':'), connector);
+    }
+
+    /**
+     * Add data.
+     */
+    protected void Add(string[] config, IMyShipConnector connector)
+    {
+        Connector = connector;
+        
+        Number = Int32.Parse(config[1]);
+        Action = config[2];
+
+        string[] offset = config[4].Split(',');
+        Offset = new Vector3D(
+            double.Parse(offset[0]), 
+            double.Parse(offset[1]), 
+            double.Parse(offset[2])
+        );
+
+        Connector.CustomData = ToString();
+    }
+
+    /**
+     * Return the config.
+     */
+    public override String ToString() 
+    { 
+        return "PORT:" + Number + ":" + Action + ":" + Connector.CustomName + ":" +
+            Math.Round(Offset.X) + "," + Math.Round(Offset.Y) + "," + Math.Round(Offset.Z)
+        ;
+    } 
+
+}
+
 // Registered bus.
 Module Bus  = null;
 // Block cache.
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
-// Mode
-String Mode = "CHARGE";
+List<DronePort> Ports = new List<DronePort>();
 
 /**
 * Store data.
 */
 public void Save()
 {   
-    Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n"
+    String data = "FORMAT v" + DATA_FORMAT + "\n"
         + (
             Bus != null ? (
                 "Bus=" + Bus + "*" + (
@@ -52,9 +118,9 @@ public void Save()
                     )
                 ) 
             ) : ""
-        ) + " \n"
-        + "Mode=" + Mode
+        ) + "\n"
     ;
+    Me.CustomData = data;
 }
 
 /**
@@ -62,6 +128,8 @@ public void Save()
 */
 public Program()
 {
+    Ports.Clear();
+
     if (Me.CustomData.Length == 0) return;
     String[] store = Me.CustomData.Split('\n');
     foreach(String line in store) {
@@ -72,11 +140,21 @@ public Program()
         if (line.IndexOf("Bus=") == 0) {
             LoadBusFromConfig(line);
         }
-        if (line.IndexOf("Mode=") == 0) {
-            Mode = args[1];
+    }
+
+
+    List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+    GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(connectors);
+    foreach(IMyShipConnector connector in connectors) {
+        if (
+            connector.CubeGrid == Me.CubeGrid &&
+            connector.CustomData.Length > 0 &&
+            connector.CustomData.Substring(0, 4) == "PORT"
+        ) {
+            Ports.Add(new DronePort(connector));
         }
     }
-    DetailedInfo();
+    Main("");
 }
 
 /**
@@ -104,18 +182,16 @@ public void LoadBusFromConfig(String config)
     };
 }
 
-String LastArgument = "";
 /**
 * Main program ;)
 */
 public void Main(String argument)
 {
-    Blocks.Clear();
-    if(argument.Length > 0) {
-        LastArgument = argument;
-    }
+    DronePort old;
 
-    Echo("Arg: " + LastArgument);
+    Blocks.Clear();
+
+    Echo("Arg: " + argument);
 
     if (argument != "UNINSTALL" && Bus == null) {
         Echo("Search bus...");
@@ -131,16 +207,29 @@ public void Main(String argument)
         } else if (argument != String.Empty) {
             String[] args = argument.Split(':');
             switch (args[0]) {
-                case "mode":
-                    Mode = args[1];
+                case "SET":
+                    old = GetPort(Int32.Parse(args[1]));
+                    if (old != null) Ports.Remove(old);
+                    Ports.Add(new DronePort(argument, GridTerminalSystem, Me.CubeGrid));
                     break;
+                case "CLEAR":
+                    Ports.Clear();
+                    break;
+                case "REMOVE":
+                    old = GetPort(Int32.Parse(args[1]));
+                    if (old != null) 
+                    {
+                        old.Connector.CustomData = String.Empty;
+                        Ports.Remove(old);
+                    }
+                    break;
+
             }
             Save();
         }
     }
     
     DetailedInfo();
-    
 }
 
 /**
@@ -303,8 +392,10 @@ public void DetailedInfo()
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
-        + "Mode: " + Mode + "\n"
     );
+    foreach(DronePort port in Ports) {
+        Echo(port.ToString());
+    }
 }
 
 /**
@@ -328,6 +419,7 @@ public void SearchBus()
 public void Uninstall()
 {
     Echo("Uninstall...");
+    Me.CustomData = String.Empty;
     if (Bus == null) return;
     //*/
     AddCall(Bus.Core, Bus.ToString(), "API://RemoveListener/RadioData/" + GetId(Me));
@@ -416,8 +508,24 @@ public void OnEvent(String eventName, String sourceId, String data)
 {
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
+        case "RadioData":
+        
+            break;
         default:
             Echo("Unknown received event: " + eventName);
             break;
     }
+}
+
+/**
+ * Find port by number.
+ */
+public DronePort GetPort(int number)
+{
+    foreach(DronePort port in Ports) {
+        if (port.Number == number) {
+            return port;
+        }
+    }
+    return null;
 }

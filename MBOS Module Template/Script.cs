@@ -70,7 +70,7 @@ public Program()
             LoadBusFromConfig(line);
         }
     }
-    DetailedInfo();
+    Main("");
 }
 
 /**

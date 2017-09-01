@@ -246,6 +246,8 @@ public void ApplyAPICommunication(String apiInput)
             Echo("Unknown request: " + apiInput);
             break;
     }
+
+    Save();
 }
 
 /**

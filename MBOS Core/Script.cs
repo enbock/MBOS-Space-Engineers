@@ -116,18 +116,9 @@ public void Main(string argument)
 */
 public Program()
 { 
-    if (Storage.Length > 0) { 
-        Config.Clear(); 
-        String[] configs = Storage.Split('\n'); 
-        
-        if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
-        
-        for(int i = 1; i < configs.Length; i++) {
-            String data = configs[i]; 
-            if (data.Length > 0) Config.Add(new ConfigValue(data)); 
-        } 
-        StartTimer();
-    } 
+    Config.Clear(); 
+    LoadFromCustomData();
+    StartTimer(); 
     OutputToConsole();
 } 
  
@@ -135,7 +126,7 @@ public Program()
 * Store config memory.
 */
 public void Save() { 
-    Storage = FormatConfig(Config); 
+    Me.CustomData = FormatConfig(Config); 
 } 
 
 /**

@@ -16,15 +16,16 @@ In follow run the script with
 
 * Set a connector:
 
-		SET:<PORT NUMBER>:<ACTION>:<CONNECTOR NAME>
+		SET:<PORT NUMBER>:<ACTION>:<CONNECTOR NAME>:<X>,<Y>,<Z>
 
 * Remove a connector:
 
 		REMOVE:<PORT NUMBER>
 
-## Actions
-* `LOAD` - Dock to get loaded with goods
-* `CHARGE` - Dock to reacharge the batteries.
+* Actions
+	* `LOAD` - Dock to get loaded with goods
+	* `CHARGE` - Dock to reacharge the batteries.
+* `<X>,<Y>,<Z>` - Relative offset coordinate of flight to station point
 
 # Protocol with Drone
 
@@ -35,12 +36,12 @@ In follow run the script with
 
 ## Require an action
 
-* Done: `NEED:<ACTION>|<SHIP NAME>`
+* Done: `NEED|{NEW,<ACTION>}|<SHIP NAME>`
 * Port: `<SHIP NAME>|<ACTION>|<STATION NAME>` (multiple port answers)
 * Drone: `<STATION NAME>|REQUEST|<ACTION>|<SHIP NAME>`
-* Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
-* Port-Error: `<SHIP NAME>|<ACTION>|DENIED` (drone restarts now)
+* Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>|<STATION NAME>`
+* Port-Error: `<SHIP NAME>|<ACTION>|DENIED|<STATION NAME>` (drone restarts now)
 
 ## Undocking
 
-* Drone: `<STATION NAME>|RELEASED|<PORT NUMBER>`
+* Drone: `<STATION NAME>|RELEASED|<SHIP NAME>`

@@ -37,6 +37,7 @@ Module Bus  = null;
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
 Module Antenna = null;
+string LastSendData = "";
 
 /**
 * Store data.
@@ -161,6 +162,10 @@ public void GetAntenna(string name)
 public void ReceiveData(string incoming)
 {
     AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/RadioData/" + GetId(Me) +  "/" + incoming);
+    if (incoming != LastSendData) {
+        (Antenna.Block as IMyRadioAntenna).TransmitMessage(incoming);
+        LastSendData = incoming;
+    }
 }
 
 /**
