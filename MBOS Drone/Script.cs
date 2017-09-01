@@ -68,11 +68,14 @@ public ConfigValue GetConfig(String key) {
 // The central configuration.
 List<ConfigValue> Config = new List<ConfigValue>(); 
 
+int TimeOut = 10;
+
 string Mode = "done";
 string Action = "NONE";
 string TargetPosition = "NONE";
 string ConfirmedActionData = String.Empty;
 string RequestedAction = String.Empty;
+string PossibleActionData = String.Empty;
 
 IMyShipConnector connector;
 IMyRemoteControl CtrlFlight;
@@ -95,6 +98,7 @@ int TimeAfterFlight = 0;
 int TimeAfter = 0;
 
 public Program() {
+    initProgram();
 }
 
 public void initProgram() {
@@ -107,9 +111,26 @@ public void initProgram() {
     InitLightShow();
 }
 
+/**
+* Store config memory.
+*/
+public void Save() { 
+    Me.CustomData = FormatConfig(Config); 
+} 
 
-public void Save() {
-    // Nothing yet
+/**
+* Convert config to storable string.
+*/
+public String FormatConfig(List<ConfigValue> config) 
+{ 
+    List<String> store = new List<String>();  
+    int i; 
+     
+    for(i = 0; i < config.Count; i++) { 
+        store.Add(config[i].ToString()); 
+    } 
+     
+    return "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
 }
 
 public void Main(string argument) {
@@ -118,9 +139,11 @@ public void Main(string argument) {
         initProgram();
         if(connector == null || CtrlFlight == null || CtrlDock == null) {
             Echo("Missing one of the configuration Values: 'Connector', 'FlightControl', 'DockControl'");
+            Save();
             return;
         }
     }
+    Save();
 
     string[] args = argument.Split('|');
     Echo(argument);
@@ -147,6 +170,9 @@ public void Main(string argument) {
             break;
 
         default:
+            if (args[0] == MyName()) {
+                ReceiveCom(args);
+            }
             break;
 
     }
@@ -165,6 +191,9 @@ public void Main(string argument) {
             break;
         case "LOAD":
             DoLoadAction();
+            break;
+        case "CARGO":
+            DoCargoAction();
             break;
         case "REQUEST":
             DoRequestHandling();
@@ -185,27 +214,16 @@ public void Main(string argument) {
             case "DOCK":
                 LoadActionCounter = 0;
                 TimeAfterDock =  0;
-                switch(Action /*TODO action variable here*/) {
-                    case "CHARGE":
-                        switchBatteries(false);
-                        break;
-                }
+                ApplyActionNow();
                 Mode = "none";
                 break;
-            case "NONE":
+            case "REQUEST":
+                Action = "UNDOCK";
+                Mode = "none";
+                TimeAfterUndock =  0;
+                break;
+            default:
                 RequestAction();
-                Action = "REQUEST";
-                Mode = "requesting";
-                break;
-            case "CHARGE":
-                Action = "UNDOCK";
-                Mode = "none";
-                TimeAfterUndock =  0;
-                break;
-            case "LOAD":
-                Action = "UNDOCK";
-                Mode = "none";
-                TimeAfterUndock =  0;
                 break;
         }
     }
@@ -222,30 +240,106 @@ public void Main(string argument) {
     Echo("Target: " + TargetPosition); 
     Echo("Mode: " + Mode);
     Echo("Locked: " + (IsLocked ? "yes" : "no"));
-    Echo ("After Count: " + TimeAfter);
-
+    Echo("After Count: " + TimeAfter);
 }
 
 public void RequestAction()
 {
     string next = GetBatteryChargeLevel() > 0.75 ? "NEW" : "CHARGE";
     RequestedAction = next;
-    Transmit("NEED|"+next+"|"+Me.CubeGrid.EntityId);
+    Vector3D position = CtrlFlight.GetPosition() - OffsetFlight;
+    Transmit("NEED|" + next + "|" + position.X + "|" + position.Y + "|" + position.Z + "|" + MyName());
     TimeAfter = 0;
+    Action = "REQUEST";
+    Mode = "requesting";
 }
 
+/**
+ * Handle request processes.
+ */
 public void DoRequestHandling()
 {
+    switch(Mode) {
+        case "requesting":
+            if (TimeAfter < TimeOut || GetBatteryChargeLevel() < 0.5) return;
+            // No data received...ask again.
+            if (PossibleActionData == String.Empty) {
+                RequestAction();
+                return;
+            }
 
+            string[] stack = PossibleActionData.Split('|');
+
+            Mode = "requirePort";
+            TimeAfter = 0;
+            Transmit(stack[3] + "|REQUEST|" + stack[1] + "|" + MyName());
+
+            break;
+        
+        case "requirePort":
+            if (TimeAfter > TimeOut) {
+                // About after timeout
+                PossibleActionData = String.Empty;
+                RequestAction();
+                return;
+            }
+            break;
+    }
+}
+
+/**
+ * Received intercom data.
+ */
+public void ReceiveCom(string[] stack)
+{
+    if (Mode == "requirePort" && stack[2] == "DENIED") {
+        PossibleActionData = String.Empty;
+        RequestAction();
+        return;
+    }
+
+    if (Mode == "requirePort" && stack[3] == "RESERVED") {
+        ConfirmedActionData = String.Join("|", stack);
+        Mode = "done";
+        return;
+    }
+
+    if (Mode == "requesting" && (RequestedAction == "NEW" || stack[1] == RequestedAction)) {
+        if (PossibleActionData == String.Empty) {
+            PossibleActionData = String.Join("|", stack);
+            return;
+        }
+        string[] breforeAction = PossibleActionData.Split('|');
+        if(Double.Parse(stack[2]) < Double.Parse(breforeAction[2])) {
+            PossibleActionData = String.Join("|", stack);
+            return;
+        }
+        return;
+    } 
 }
 
 public void ApplyConfirmedAction()
 {
+    if (TargetPosition != "NONE") {
+        Transmit(TargetPosition + "|RELEASED|" + MyName());
+    }
+
     string[] args = ConfirmedActionData.Split('|');
-    Action = args[1];
+    Action = "DOCK";
     TargetPosition = args[10];
     FlightTarget = new Vector3D(Double.Parse(args[4]), Double.Parse(args[5]), Double.Parse(args[6]));
     DockTarget = new Vector3D(Double.Parse(args[7]), Double.Parse(args[8]), Double.Parse(args[9]));
+}
+
+public void ApplyActionNow()
+{
+    string[] args = ConfirmedActionData.Split('|');
+    Action = args[1];
+    switch(Action) {
+        case "CHARGE":
+            switchBatteries(false);
+            break;
+    }
 }
 
 public void DoFlightAndDock()
@@ -290,6 +384,10 @@ public void DoFlightAndDock()
         case "locking":
             if (IsLocked) {
                 switchEngines(false);
+
+                string[] args = ConfirmedActionData.Split('|');
+                Transmit(TargetPosition + "|DOCKED|" + args[2] + "|" + MyName());
+
                 Mode = "done";
             } else {
                 Mode = "docking";
@@ -312,7 +410,7 @@ public void DoFlightAndDock()
 public void DoUndock()
 {
     bool isReached;
-    bool flightOn = false;
+    bool dockOn = false;
 
     switch(Mode)
     {
@@ -321,25 +419,29 @@ public void DoUndock()
                 switchEngines(true);
                 switchBatteries(true);
                 connector.GetActionWithName("SwitchLock").Apply(connector);
-                flightOn = false;
+                dockOn = false;
             } else {
+                if (TargetPosition  == "NONE") {
+                    Mode = "done";
+                    break;
+                }
                 CtrlDock.ClearWaypoints();
                 TargetVector = FlightTarget - OffsetFlight;
                 CtrlDock.AddWaypoint(TargetVector, "Undock");
-                flightOn = true;
+                dockOn = true;
                 Mode="flight";
             }
             break;
 
         case "flight":
             isReached = Vector3D.Distance(CtrlDock.GetPosition(), TargetVector) <= TargetTolerance;
-            flightOn = !isReached;
+            dockOn = !isReached;
             if(isReached) {
                 Mode = "done";
             }
             break;
     }
-    CtrlDock.SetAutoPilotEnabled(flightOn);
+    CtrlDock.SetAutoPilotEnabled(dockOn);
 }
 
 /**
@@ -407,21 +509,6 @@ public void DisableAutoPilot()
 
 public void DoChargeAction()
 {
-    // Check cargo
-    List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
-    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(cargo);
-    bool isEmpty = true;
-    double left = 0.0;
-    foreach(IMyCargoContainer container in cargo) {
-        if(container.CubeGrid == Me.CubeGrid) {
-            IMyInventory inventory = container.GetInventory(0);
-            isEmpty = isEmpty && (double)inventory.GetItems().Count == 0;
-            left +=  (double)inventory.CurrentVolume;
-        }
-    }
-    Echo("Cargos are " + (isEmpty ? "empty." : "not empty (" + Math.Round(left*1000.0,2) + " L left)."));
-
-
     // Check battery
     List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
@@ -436,7 +523,29 @@ public void DoChargeAction()
     Echo("Batteries are " + (isCharged ? "charged." : "not full (" + Math.Round(power,2) + " MWh left)."));
 
     Mode = "wait";
-    if (isEmpty && isCharged) {
+    if (isCharged) {
+        Mode = "done";
+    }
+}
+
+public void DoCargoAction()
+{
+    // Check cargo
+    List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
+    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(cargo);
+    bool isEmpty = true;
+    double left = 0.0;
+    foreach(IMyCargoContainer container in cargo) {
+        if(container.CubeGrid == Me.CubeGrid) {
+            IMyInventory inventory = container.GetInventory(0);
+            isEmpty = isEmpty && (double)inventory.GetItems().Count == 0;
+            left +=  (double)inventory.CurrentVolume;
+        }
+    }
+    Echo("Cargos are " + (isEmpty ? "empty." : "not empty (" + Math.Round(left*1000.0,2) + " L left)."));
+
+    Mode = "wait";
+    if (isEmpty) {
         Mode = "done";
     }
 }
@@ -479,9 +588,15 @@ public void DoLoadAction()
         LoadActionOldLeft = left;
     }
 
-    Echo("Start countdown: " + (120 - LoadActionCounter));
+    int countDown = Int32.Parse(GetConfig("LoadStartCountDown").Value);
+    if (countDown < 1) {
+        GetConfig("LoadStartCountDown").Value = "120";
+        countDown = 120;
+    }
+
+    Echo("Start countdown: " + (countDown - LoadActionCounter));
     //(i) Also, limit to 120s to wait, after last cargo change
-    Mode = isFull || LoadActionCounter > 120 ? "done" : "wait";
+    Mode = isFull || LoadActionCounter > countDown ? "done" : "wait";
 }
 
 List<IMyInteriorLight> AnimatedLights = new List<IMyInteriorLight>();
@@ -567,6 +682,9 @@ public void LightShow()
     }
 }
 
+/**
+ * Send data to first radio antenna.
+ */
 public void Transmit(String data)
 {
     List<IMyRadioAntenna> antennaList = new List<IMyRadioAntenna>();
@@ -579,4 +697,12 @@ public void Transmit(String data)
         }
     }
     Echo("No active antenna to transmit found.");
+}
+
+/**
+ * Get my name (station grid id).
+ */
+public string MyName()
+{
+    return "" + Me.CubeGrid.EntityId;
 }

@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "DronePort";
 // Module version
-const String VERSION = "0.1.0";
+const String VERSION = "0.2.0";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -39,7 +39,8 @@ public class DronePort
     public int Number;
     public String Action;
     public IMyShipConnector Connector;
-    public Vector3D Offset = new Vector3D();
+    public Vector3I Offset = new Vector3I();
+    protected String usedBy;
 
     /**
      * Create droneport from config string.
@@ -77,13 +78,25 @@ public class DronePort
         Action = config[2];
 
         string[] offset = config[4].Split(',');
-        Offset = new Vector3D(
-            double.Parse(offset[0]), 
-            double.Parse(offset[1]), 
-            double.Parse(offset[2])
+        Offset = new Vector3I(
+            Int32.Parse(offset[0]), 
+            Int32.Parse(offset[1]), 
+            Int32.Parse(offset[2])
         );
 
+        if (config.Length >= 6) {
+            usedBy = config[5];
+        }
+
         Connector.CustomData = ToString();
+    }
+
+    public String UsedBy {
+        get { return usedBy; }
+        set {
+            usedBy = value;
+            Connector.CustomData = ToString();
+        }
     }
 
     /**
@@ -92,7 +105,8 @@ public class DronePort
     public override String ToString() 
     { 
         return "PORT:" + Number + ":" + Action + ":" + Connector.CustomName + ":" +
-            Math.Round(Offset.X) + "," + Math.Round(Offset.Y) + "," + Math.Round(Offset.Z)
+            Offset.X + "," + Offset.Y + "," + Offset.Z
+            + ":" + usedBy
         ;
     } 
 
@@ -204,6 +218,10 @@ public void Main(String argument)
     } else {
         if (argument == "UNINSTALL") {
             Uninstall();
+        } else if (argument == "DERESERVE") {
+            foreach(DronePort port in Ports) {
+                port.UsedBy = String.Empty;
+            }
         } else if (argument != String.Empty) {
             String[] args = argument.Split(':');
             switch (args[0]) {
@@ -509,7 +527,18 @@ public void OnEvent(String eventName, String sourceId, String data)
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
         case "RadioData":
-        
+            string[] stack = data.Split('|');
+            if (stack[0] == "NEED") {
+                DoRequire(stack);
+            } else if (stack[0] == MyName()) {
+                if(stack[1] == "REQUEST") {
+                    DoRequestPort(stack);
+                } else if (stack[1] == "RELEASED") {
+                    DoReleasePort(stack);
+                } else if (stack[1] == "DOCKED") {
+                    DoDockPort(stack);
+                }
+            }
             break;
         default:
             Echo("Unknown received event: " + eventName);
@@ -528,4 +557,86 @@ public DronePort GetPort(int number)
         }
     }
     return null;
+}
+
+/**
+ * Get my name (station grid id).
+ */
+public string MyName()
+{
+    return "" + Me.CubeGrid.EntityId;
+}
+
+/**
+ * Answer for the action request.
+ * Searches for free ports with action.
+ */
+public void DoRequire(string[] stack)
+{
+    Vector3D dronePosition = new Vector3D(
+        Double.Parse(stack[2]),
+        Double.Parse(stack[3]),
+        Double.Parse(stack[4])
+    );
+
+    foreach(DronePort port in Ports) {
+        if (port.UsedBy != String.Empty) continue;
+        if (stack[1] != "NEW" && port.Action != stack[1]) continue;
+        double distance = Vector3D.Distance(port.Connector.GetPosition(), dronePosition);
+        string data = stack[5] + "|" + port.Action + "|" + distance + "|" + MyName();
+        AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+    }
+}
+
+/**
+ * Reserve a port for the ship.
+ */
+public void DoRequestPort(string[] stack)
+{
+    string data;
+    foreach(DronePort port in Ports) {
+        if (port.UsedBy != String.Empty) continue;
+        if (port.Action != stack[2]) continue;
+
+        port.UsedBy = stack[3]; // reserve
+
+        Vector3D  flightPoint = Me.CubeGrid.GridIntegerToWorld(port.Connector.Position - port.Offset);
+        Vector3D  connectPoint = port.Connector.GetPosition();
+
+        data = port.UsedBy + "|" + port.Action 
+            + "|" + port.Number + "|RESERVED" 
+            + "|" + flightPoint.X + "|" + flightPoint.Y + "|" + flightPoint.Z 
+            + "|" + connectPoint.X + "|" + connectPoint.Y + "|" + connectPoint.Z 
+            + "|" + MyName();
+        AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+
+        return;
+    }
+
+    // No ports zu reserve found
+    data = stack[3] + "|" + stack[2] + "|DENIED|" + MyName();
+    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+}
+
+/**
+ * Remove reservation(s) of a ship.
+ */
+public void DoReleasePort(string[] stack)
+{
+    foreach(DronePort port in Ports) {
+        if (port.UsedBy != stack[2]) continue;
+        port.UsedBy = String.Empty;
+    }
+}
+
+/**
+ * Remove reservation(s) of a ship.
+ */
+public void DoDockPort(string[] stack)
+{
+    foreach(DronePort port in Ports) {
+        if (port.Number != Int32.Parse(stack[2])) continue;
+        port.UsedBy = stack[3];
+        return;
+    }
 }

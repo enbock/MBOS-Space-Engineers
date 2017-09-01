@@ -29,6 +29,7 @@ In follow run the script with
 
 # Protocol with Drone
 
+* `<X><Y><Z>` - Drone position
 * `<X1><Y1><Z1>` - Flight to station point (usually 20 meter above connector)
 * `<X1><Y2><Z2>` - Corrdinate of connector
 * `<SHIP NAME>` - Grid name of the drone
@@ -36,11 +37,15 @@ In follow run the script with
 
 ## Require an action
 
-* Done: `NEED|{NEW,<ACTION>}|<SHIP NAME>`
-* Port: `<SHIP NAME>|<ACTION>|<STATION NAME>` (multiple port answers)
+* Done: `NEED|{NEW,<ACTION>}|<X>|<Y>|<Z>|<SHIP NAME>`
+* Port: `<SHIP NAME>|<ACTION>|<DISTANCE>|<STATION NAME>` (multiple port answers)
 * Drone: `<STATION NAME>|REQUEST|<ACTION>|<SHIP NAME>`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>|<STATION NAME>`
 * Port-Error: `<SHIP NAME>|<ACTION>|DENIED|<STATION NAME>` (drone restarts now)
+
+## Dock info
+
+* Drone: `<STATION NAME>|DOCKED|<PORT NUMBER>|<SHIP NAME>`
 
 ## Undocking
 
