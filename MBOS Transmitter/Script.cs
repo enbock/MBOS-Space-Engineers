@@ -467,6 +467,7 @@ public void OnEvent(String eventName, String sourceId, String data)
         case "SendRadio":
             // Send data to antenna.
             (Antenna.Block as IMyRadioAntenna).TransmitMessage(data);
+            LastSendData = data;
             break;
         default:
             Echo("Unknown received event: " + eventName);

@@ -537,7 +537,12 @@ public void OnEvent(String eventName, String sourceId, String data)
                     DoReleasePort(stack);
                 } else if (stack[1] == "DOCKED") {
                     DoDockPort(stack);
+                } else if (stack[1] == "DOCKED") {
+                    CleanDockPort(stack);
+                    DoDockPort(stack);
                 }
+            } else if (stack[1] == "DOCKED") {
+                CleanDockPort(stack);
             }
             break;
         default:
@@ -583,7 +588,7 @@ public void DoRequire(string[] stack)
         if (port.UsedBy != String.Empty) continue;
         if (stack[1] != "NEW" && port.Action != stack[1]) continue;
         double distance = Vector3D.Distance(port.Connector.GetPosition(), dronePosition);
-        string data = stack[5] + "|" + port.Action + "|" + distance + "|" + MyName();
+        string data = stack[5] + "|" + port.Action + "|" + port.Number + "|" + distance + "|" + MyName();
         AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
     }
 }
@@ -595,10 +600,17 @@ public void DoRequestPort(string[] stack)
 {
     string data;
     foreach(DronePort port in Ports) {
-        if (port.UsedBy != String.Empty) continue;
-        if (port.Action != stack[2]) continue;
+        if (port.Number != Int32.Parse(stack[3])) continue;
+        if (port.UsedBy != String.Empty) {
+            if(port.UsedBy == stack[4]) return; // allready assigned
 
-        port.UsedBy = stack[3]; // reserve
+            // Assigned by other
+            data = stack[3] + "|" + stack[2] + "|DENIED|" + MyName();
+            AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+        }
+        //if (port.Action != stack[2]) continue;
+
+        port.UsedBy = stack[4]; // reserve
 
         Vector3D  flightPoint = Me.CubeGrid.GridIntegerToWorld(port.Connector.Position - port.Offset);
         Vector3D  connectPoint = port.Connector.GetPosition();
@@ -612,10 +624,6 @@ public void DoRequestPort(string[] stack)
 
         return;
     }
-
-    // No ports zu reserve found
-    data = stack[3] + "|" + stack[2] + "|DENIED|" + MyName();
-    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
 }
 
 /**
@@ -630,7 +638,19 @@ public void DoReleasePort(string[] stack)
 }
 
 /**
- * Remove reservation(s) of a ship.
+ * Remove reservation(s) of a ship when docked anywhere.
+ */
+public void CleanDockPort(string[] stack)
+{
+    foreach(DronePort port in Ports) {
+        if (port.UsedBy == stack[3]) {
+            port.UsedBy = String.Empty;
+        }
+    }
+}
+
+/**
+ * Readd reservation(s) of a ship after dock.
  */
 public void DoDockPort(string[] stack)
 {

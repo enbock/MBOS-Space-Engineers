@@ -38,8 +38,8 @@ In follow run the script with
 ## Require an action
 
 * Done: `NEED|{NEW,<ACTION>}|<X>|<Y>|<Z>|<SHIP NAME>`
-* Port: `<SHIP NAME>|<ACTION>|<DISTANCE>|<STATION NAME>` (multiple port answers)
-* Drone: `<STATION NAME>|REQUEST|<ACTION>|<SHIP NAME>`
+* Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|<DISTANCE>|<STATION NAME>` (multiple port answers)
+* Drone: `<STATION NAME>|REQUEST|<ACTION>|<PORT NUMBER>|<SHIP NAME>`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>|<STATION NAME>`
 * Port-Error: `<SHIP NAME>|<ACTION>|DENIED|<STATION NAME>` (drone restarts now)
 

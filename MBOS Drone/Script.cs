@@ -68,7 +68,7 @@ public ConfigValue GetConfig(String key) {
 // The central configuration.
 List<ConfigValue> Config = new List<ConfigValue>(); 
 
-int TimeOut = 10;
+int TimeOut = 30;
 
 string Mode = "done";
 string Action = "NONE";
@@ -108,6 +108,12 @@ public void initProgram() {
     CtrlFlight = GetBlockByName(GetConfig("FlightControl").Value) as IMyRemoteControl;
     CtrlDock = GetBlockByName(GetConfig("DockControl").Value) as IMyRemoteControl;
 
+    TimeOut = Int32.Parse(GetConfig("TimeOut").Value ?? "0");
+    if (TimeOut < 1) {
+        GetConfig("TimeOut").Value = "30";
+        TimeOut = 30;
+    }
+
     InitLightShow();
 }
 
@@ -134,7 +140,7 @@ public String FormatConfig(List<ConfigValue> config)
 }
 
 public void Main(string argument) {
-
+    LoadConfigFromCustomData();
     if(connector == null || CtrlFlight == null || CtrlDock == null) {
         initProgram();
         if(connector == null || CtrlFlight == null || CtrlDock == null) {
@@ -143,7 +149,6 @@ public void Main(string argument) {
             return;
         }
     }
-    Save();
 
     string[] args = argument.Split('|');
     Echo(argument);
@@ -272,7 +277,7 @@ public void DoRequestHandling()
 
             Mode = "requirePort";
             TimeAfter = 0;
-            Transmit(stack[3] + "|REQUEST|" + stack[1] + "|" + MyName());
+            Transmit(stack[4] + "|REQUEST|" + stack[1] + "|" + stack[2] + "|" + MyName());
 
             break;
         
@@ -310,7 +315,7 @@ public void ReceiveCom(string[] stack)
             return;
         }
         string[] breforeAction = PossibleActionData.Split('|');
-        if(Double.Parse(stack[2]) < Double.Parse(breforeAction[2])) {
+        if(Double.Parse(stack[3]) < Double.Parse(breforeAction[3])) {
             PossibleActionData = String.Join("|", stack);
             return;
         }
@@ -588,7 +593,8 @@ public void DoLoadAction()
         LoadActionOldLeft = left;
     }
 
-    int countDown = Int32.Parse(GetConfig("LoadStartCountDown").Value);
+    string value = GetConfig("LoadStartCountDown").Value;
+    int countDown = Int32.Parse(value == String.Empty ? "0" : value);
     if (countDown < 1) {
         GetConfig("LoadStartCountDown").Value = "120";
         countDown = 120;
