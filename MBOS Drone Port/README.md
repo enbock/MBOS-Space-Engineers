@@ -16,33 +16,31 @@ In follow run the script with
 
 * Set a connector:
 
-		SET:<PORT NUMBER>:{CHARGE|LOAD}:<CONNECTOR NAME>
+		SET:<PORT NUMBER>:<ACTION>:<CONNECTOR NAME>
 
 * Remove a connector:
 
 		REMOVE:<PORT NUMBER>
 
+## Actions
+* `LOAD` - Dock to get loaded with goods
+* `CHARGE` - Dock to reacharge the batteries.
+
 # Protocol with Drone
 
 * `<X1><Y1><Z1>` - Flight to station point (usually 20 meter above connector)
 * `<X1><Y2><Z2>` - Corrdinate of connector
+* `<SHIP NAME>` - Grid name of the drone
+* `<STATION NAME>` - Grid name of the station (port)
 
-## Require charging point
+## Require an action
 
-* Done: `NEED:CHARGE|<SHIP NAME>`
-* Port: `<SHIP NAME>|CHARGE|<STATION NAME>` (multiple port answers)
-* Drone: `<STATION NAME>|REQUEST|CHARGE|<SHIP NAME>`
-* Port: `<SHIP NAME>|CHARGE|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
-* Port-Error: `<SHIPNAME>|CHARGE|DENIED` (drone restarts now)
-
-## Require new action
-
-* Drone: `NEED:ACTION|<SHIP NAME>`
-* Port: `<SHIP NAME>|LOAD|<STATION NAME>` (multiple port answers)
-* Drone: `<STATION NAME>|REQUEST|LOAD|<SHIP NAME>`
-* Port: `<SHIP NAME>|LOAD|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
-* Port-Error: `<SHIPNAME>|LOAD|DENIED` (drone restarts now)
+* Done: `NEED:<ACTION>|<SHIP NAME>`
+* Port: `<SHIP NAME>|<ACTION>|<STATION NAME>` (multiple port answers)
+* Drone: `<STATION NAME>|REQUEST|<ACTION>|<SHIP NAME>`
+* Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>`
+* Port-Error: `<SHIP NAME>|<ACTION>|DENIED` (drone restarts now)
 
 ## Undocking
 
-* Drone: `<STATION NAME>|RELEASE|<PORT NUMBER>`
+* Drone: `<STATION NAME>|RELEASED|<PORT NUMBER>`
