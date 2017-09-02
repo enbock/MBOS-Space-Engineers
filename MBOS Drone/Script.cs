@@ -1,4 +1,4 @@
-const String VERSION = "1.1.0";
+const String VERSION = "1.2.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -74,6 +74,8 @@ string TargetPosition = "NONE";
 string ConfirmedActionData = String.Empty;
 string RequestedAction = String.Empty;
 string PossibleActionData = String.Empty;
+float BatteryEmergencyLevel = 0.5f;
+float BatteryRechargeLevel = 0.75f;
 
 IMyShipConnector connector;
 IMyRemoteControl CtrlFlight;
@@ -95,6 +97,7 @@ int TimeAfterUndock = 0;
 int TimeAfterFlight = 0;
 int TimeAfter = 0;
 string LoadedGoods = "";
+string ActionOfDocked = "";
 
 public Program() {
     initProgram();
@@ -238,13 +241,13 @@ public void Main(string argument) {
     Echo ("AfterFlight: " + TimeAfterFlight);
     Echo ("AfterDock: " + TimeAfterDock);
     Echo ("AfterUndock: " + TimeAfterUndock);
+    Echo("After Count: " + TimeAfter);
     */
     Echo("Distance: " + Math.Round(FlightDistance, 2));
     Echo("Action: " + Action); 
     Echo("Target: " + TargetPosition); 
     Echo("Mode: " + Mode);
     Echo("Locked: " + (IsLocked ? "yes" : "no"));
-    Echo("After Count: " + TimeAfter);
 }
 
 public void RequestAction()
@@ -262,17 +265,18 @@ public void RequestAction()
  */
 public void DoRequestHandling()
 {
+    string[] stack ;
     int TimeOut = Int32.Parse(GetConfig("TimeOut").Value);
     switch(Mode) {
         case "requesting":
-            if (TimeAfter < TimeOut || GetBatteryChargeLevel() < 0.5) return;
+            if (TimeAfter < TimeOut || GetBatteryChargeLevel() < BatteryEmergencyLevel) break;
             // No data received...ask again.
             if (PossibleActionData == String.Empty) {
                 RequestAction();
-                return;
+                break;
             }
 
-            string[] stack = PossibleActionData.Split('|');
+            stack = PossibleActionData.Split('|');
 
             Mode = "requirePort";
             TimeAfter = 0;
@@ -285,10 +289,17 @@ public void DoRequestHandling()
                 // About after timeout
                 PossibleActionData = String.Empty;
                 RequestAction();
-                return;
+                break;
             }
             break;
     }
+
+    Echo("Requested Action: " + RequestedAction);
+    stack = PossibleActionData.Split('|');
+    Echo("Selected: " +(stack.Length < 2 ? "Nothing" : "Go to " + stack[4] + " and dock on port #" + stack[2] + " to " + stack[1]));
+    stack = ConfirmedActionData.Split('|');
+    Echo("Confirmed: " +(stack.Length < 2 ? "Nothing" : "Go to " + stack[10] + " and dock on port #" + stack[2] + " to " + stack[1]));
+    Echo("Counter:" +TimeAfter);
 }
 
 /**
@@ -298,6 +309,7 @@ public void ReceiveCom(string[] stack)
 {
     if (Mode == "requirePort" && stack[2] == "DENIED") {
         PossibleActionData = String.Empty;
+        ConfirmedActionData = String.Empty;
         RequestAction();
         return;
     }
@@ -308,7 +320,7 @@ public void ReceiveCom(string[] stack)
         return;
     }
 
-    if (Mode == "requesting" && (RequestedAction == "NEW" || stack[1] == RequestedAction)) {
+    if (Mode == "requesting" && stack[1] == RequestedAction) {
         if (PossibleActionData == String.Empty) {
             PossibleActionData = String.Join("|", stack);
             return;
@@ -337,13 +349,17 @@ public void ApplyConfirmedAction()
 
 public void ApplyActionNow()
 {
+    LoadFindTry = 0;
     string[] args = ConfirmedActionData.Split('|');
     Action = args[1];
+    ActionOfDocked = Action;
     switch(Action) {
         case "CHARGE":
             switchBatteries(false);
             break;
     }
+
+    ConfirmedActionData = String.Empty;
 }
 
 public void DoFlightAndDock()
@@ -549,7 +565,7 @@ public void DoCargoAction()
     Echo("Cargos are " + (isEmpty ? "empty." : "not empty (" + Math.Round(left*1000.0,2) + " L left)."));
 
     Mode = "wait";
-    if (isEmpty) {
+    if (isEmpty || GetBatteryChargeLevel() < BatteryEmergencyLevel) {
         Mode = "done";
     }
 }
@@ -712,12 +728,13 @@ public string MyName()
     return "" + Me.CubeGrid.EntityId;
 }
 
+int LoadFindTry = 0;
 /**
  * Next action finder.
  */
 public string FindNextAction()
 {
-    if (GetBatteryChargeLevel() < 0.75) {
+    if (GetBatteryChargeLevel() < BatteryRechargeLevel) {
         return "CHARGE";
     }
 
@@ -742,5 +759,8 @@ public string FindNextAction()
         }
     }
 
-    return "LOAD";
+    string action = ActionOfDocked != "CHARGE" && LoadFindTry > 1 ? "CHARGE" : "LOAD";
+    if (action == "LOAD") LoadFindTry++;
+
+    return action;
 }
