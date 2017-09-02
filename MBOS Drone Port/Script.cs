@@ -117,6 +117,8 @@ Module Bus  = null;
 // Block cache.
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 List<DronePort> Ports = new List<DronePort>();
+string ProvideCargo = "ANY";
+string AcceptCargo = "ANY";
 
 /**
 * Store data.
@@ -133,6 +135,8 @@ public void Save()
                 ) 
             ) : ""
         ) + "\n"
+        + "ProvideCargo="+ProvideCargo+"\n"
+        + "AcceptCargo="+AcceptCargo+"\n"
     ;
     Me.CustomData = data;
 }
@@ -142,7 +146,6 @@ public void Save()
 */
 public Program()
 {
-    Ports.Clear();
 
     if (Me.CustomData.Length == 0) return;
     String[] store = Me.CustomData.Split('\n');
@@ -156,7 +159,9 @@ public Program()
         }
     }
 
+    LoadConfigs();
 
+    Ports.Clear();
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
     GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(connectors);
     foreach(IMyShipConnector connector in connectors) {
@@ -171,6 +176,24 @@ public Program()
     Main("");
 }
 
+public void LoadConfigs()
+{
+    if (Me.CustomData.Length == 0) return;
+    String[] store = Me.CustomData.Split('\n');
+    foreach(String line in store) {
+        String[] args = line.Split('=');
+        if (line.IndexOf("FORMAT") == 0) {
+            if(line != "FORMAT v" + DATA_FORMAT) return;
+        }
+        if (line.IndexOf("ProvideCargo=") == 0) {
+            ProvideCargo = args[1];
+        }
+        if (line.IndexOf("AcceptCargo=") == 0) {
+            AcceptCargo = args[1];
+        }
+    }
+
+}
 /**
 * Load registered bus and core from config.
 */
@@ -204,6 +227,7 @@ public void Main(String argument)
     DronePort old;
 
     Blocks.Clear();
+    LoadConfigs();
 
     Echo("Arg: " + argument);
 
@@ -243,7 +267,6 @@ public void Main(String argument)
                     break;
 
             }
-            Save();
         }
     }
     
@@ -578,6 +601,8 @@ public string MyName()
  */
 public void DoRequire(string[] stack)
 {
+    bool found;
+
     Vector3D dronePosition = new Vector3D(
         Double.Parse(stack[2]),
         Double.Parse(stack[3]),
@@ -586,7 +611,34 @@ public void DoRequire(string[] stack)
 
     foreach(DronePort port in Ports) {
         if (port.UsedBy != String.Empty) continue;
-        if (stack[1] != "NEW" && port.Action != stack[1]) continue;
+        if (port.Action != stack[1]) continue;
+
+        // Filters
+        switch(port.Action) {
+            case "LOAD": 
+                if (ProvideCargo != "ANY") {
+                    string[] loadCargoTypes = ProvideCargo.Split(',');
+                    found = false;
+                    foreach(string type in loadCargoTypes) {
+                        if (HasCargoType(type)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    // Don't submit port if no cargo available.
+                    if (!found) continue;
+                }
+                break;
+
+            case "CARGO":
+                // Skip this cargo port, if type not accepted
+                if (AcceptCargo != "ANY" && stack.Length >= 7 && AcceptCargo.IndexOf(stack[6]) == -1) {
+                    continue;
+                }
+                break;
+        }
+
+
         double distance = Vector3D.Distance(port.Connector.GetPosition(), dronePosition);
         string data = stack[5] + "|" + port.Action + "|" + port.Number + "|" + distance + "|" + MyName();
         AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
@@ -659,4 +711,31 @@ public void DoDockPort(string[] stack)
         port.UsedBy = stack[3];
         return;
     }
+}
+
+
+public bool HasCargoType(string type)
+{
+    List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
+    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(cargo);
+    foreach(IMyCargoContainer container in cargo) {
+        if(container.CubeGrid == Me.CubeGrid) {
+            IMyInventory inventory = container.GetInventory(0);
+            if((double)inventory.CurrentVolume > 0) {
+                List<IMyInventoryItem> itemList = inventory.GetItems();
+                foreach(IMyInventoryItem item in itemList) {
+                
+                    // https://forum.keenswh.com/threads/getting-display-names-of-imyinventoryitem-cleanly.7391442/
+                    string[] rawData = item.ToString().Split(new string[] { "er_" }, StringSplitOptions.RemoveEmptyEntries);
+                    string[] itemData = rawData[1].Split('/');
+
+                    if (itemData[0].Trim() == type.Trim()) return true;
+
+                    Echo(">"+itemData[0]); // for debugging
+                }
+            }
+        }
+    }
+
+    return false;
 }

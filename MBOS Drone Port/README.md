@@ -37,7 +37,7 @@ In follow run the script with
 
 ## Require an action
 
-* Done: `NEED|{NEW,<ACTION>}|<X>|<Y>|<Z>|<SHIP NAME>`
+* Done: `NEED|<ACTION>|<X>|<Y>|<Z>|<SHIP NAME>[|<CARGO TYPE>]`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|<DISTANCE>|<STATION NAME>` (multiple port answers)
 * Drone: `<STATION NAME>|REQUEST|<ACTION>|<PORT NUMBER>|<SHIP NAME>`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>|<STATION NAME>`
@@ -50,3 +50,7 @@ In follow run the script with
 ## Undocking
 
 * Drone: `<STATION NAME>|RELEASED|<SHIP NAME>`
+
+# Configs
+* `ProvideCargo` - comma separated list of provided cargo items to transport. eg. `Ore,Ammo`
+* `AcceptCargo` - Configure which types of cargo can be delivered. eg. `Ore,Ammo`

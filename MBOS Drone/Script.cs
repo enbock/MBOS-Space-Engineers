@@ -66,9 +66,7 @@ public ConfigValue GetConfig(String key) {
 } 
 
 // The central configuration.
-List<ConfigValue> Config = new List<ConfigValue>(); 
-
-int TimeOut = 30;
+List<ConfigValue> Config = new List<ConfigValue>();
 
 string Mode = "done";
 string Action = "NONE";
@@ -96,6 +94,7 @@ int TimeAfterDock = 0;
 int TimeAfterUndock = 0;
 int TimeAfterFlight = 0;
 int TimeAfter = 0;
+string LoadedGoods = "";
 
 public Program() {
     initProgram();
@@ -108,10 +107,10 @@ public void initProgram() {
     CtrlFlight = GetBlockByName(GetConfig("FlightControl").Value) as IMyRemoteControl;
     CtrlDock = GetBlockByName(GetConfig("DockControl").Value) as IMyRemoteControl;
 
-    TimeOut = Int32.Parse(GetConfig("TimeOut").Value ?? "0");
+    string value = GetConfig("TimeOut").Value;
+    int TimeOut = Int32.Parse(value == String.Empty ? "0" : value);
     if (TimeOut < 1) {
         GetConfig("TimeOut").Value = "30";
-        TimeOut = 30;
     }
 
     InitLightShow();
@@ -250,10 +249,9 @@ public void Main(string argument) {
 
 public void RequestAction()
 {
-    string next = GetBatteryChargeLevel() > 0.75 ? "NEW" : "CHARGE";
-    RequestedAction = next;
+    RequestedAction = FindNextAction();
     Vector3D position = CtrlFlight.GetPosition() - OffsetFlight;
-    Transmit("NEED|" + next + "|" + position.X + "|" + position.Y + "|" + position.Z + "|" + MyName());
+    Transmit("NEED|" + RequestedAction + "|" + position.X + "|" + position.Y + "|" + position.Z + "|" + MyName() + "|" + LoadedGoods);
     TimeAfter = 0;
     Action = "REQUEST";
     Mode = "requesting";
@@ -264,6 +262,7 @@ public void RequestAction()
  */
 public void DoRequestHandling()
 {
+    int TimeOut = Int32.Parse(GetConfig("TimeOut").Value);
     switch(Mode) {
         case "requesting":
             if (TimeAfter < TimeOut || GetBatteryChargeLevel() < 0.5) return;
@@ -711,4 +710,37 @@ public void Transmit(String data)
 public string MyName()
 {
     return "" + Me.CubeGrid.EntityId;
+}
+
+/**
+ * Next action finder.
+ */
+public string FindNextAction()
+{
+    if (GetBatteryChargeLevel() < 0.75) {
+        return "CHARGE";
+    }
+
+    // Find first loaded good.
+    LoadedGoods = String.Empty;
+    List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
+    GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(cargo);
+    foreach(IMyCargoContainer container in cargo) {
+        if(container.CubeGrid == Me.CubeGrid) {
+            IMyInventory inventory = container.GetInventory(0);
+            if((double)inventory.CurrentVolume > 0) {
+                List<IMyInventoryItem> itemList = inventory.GetItems();
+                IMyInventoryItem item = itemList[0];
+                
+                // https://forum.keenswh.com/threads/getting-display-names-of-imyinventoryitem-cleanly.7391442/
+                string[] rawData = item.ToString().Split(new string[] { "er_" }, StringSplitOptions.RemoveEmptyEntries);
+                string[] itemData = rawData[1].Split('/');
+
+                LoadedGoods = itemData[0];
+                return "CARGO";
+            }
+        }
+    }
+
+    return "LOAD";
 }
