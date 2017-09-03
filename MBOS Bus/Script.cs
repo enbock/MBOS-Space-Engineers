@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.0";
+﻿const String VERSION = "1.1.1";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -180,7 +180,7 @@ public void DetailedInfo()
         + "CORES=" +  FormatRegisteredCores() + "\n"
         + "RegisteredEvents=" + RegisteredEvents.Count + "\n"
     );
-    Output(DumpEventList());
+    Output(DumpEventList() + "\n");
 }
 
 /**

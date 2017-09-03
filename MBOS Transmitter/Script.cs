@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "Transmitter";
 // Module version
-const String VERSION = "0.1.0";
+const String VERSION = "1.0.1";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -350,6 +350,8 @@ public void DetailedInfo()
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
         + "Antenna: " + (Antenna != null ? Antenna.ToString() : "") + "\n"
     );
+    
+    Output("[" + NAME + " v" + VERSION + "] \n  " + LastSendData+"\n\n");
 }
 
 /**
@@ -387,7 +389,6 @@ public void Uninstall()
 public void Output(String text)
 {
     if (Bus == null || Bus.Core == null || Bus.Core.Display == null) {
-        Bus = null;
         Echo("No Core LCD to output: "+text);
         return;
     }

@@ -153,7 +153,7 @@ public void Main(string argument) {
     }
 
     string[] args = argument.Split('|');
-    Echo(argument);
+    //Echo(argument);
 
     IsLocked = connector.Status == MyShipConnectorStatus.Connected;
 
@@ -269,12 +269,15 @@ public void DoRequestHandling()
     int TimeOut = Int32.Parse(GetConfig("TimeOut").Value);
     switch(Mode) {
         case "requesting":
-            if (TimeAfter < TimeOut || GetBatteryChargeLevel() < BatteryEmergencyLevel) break;
+            if (TimeAfter < TimeOut && GetBatteryChargeLevel() >= BatteryEmergencyLevel) break;
+
             // No data received...ask again.
-            if (PossibleActionData == String.Empty) {
+            if (TimeAfter > TimeOut && PossibleActionData == String.Empty) {
                 RequestAction();
                 break;
             }
+
+            if (PossibleActionData == String.Empty) break;
 
             stack = PossibleActionData.Split('|');
 
@@ -362,11 +365,13 @@ public void ApplyActionNow()
     ConfirmedActionData = String.Empty;
 }
 
+bool FlightAndDockFlip = false;
 public void DoFlightAndDock()
 {
     bool flightOn = false;
     bool dockOn   = false;
     bool isReached;
+    FlightAndDockFlip = !FlightAndDockFlip;
     switch(Mode) 
     {
         case "none":
@@ -398,7 +403,7 @@ public void DoFlightAndDock()
                 CtrlDock.ClearWaypoints();
                 TargetVector = DockTarget - OffsetDock;
                 CtrlDock.AddWaypoint(TargetVector, "Dock " + Math.Round(distance));
-                dockOn = true;
+                dockOn = distance < 7.0 ? FlightAndDockFlip : true;
             }
             break;
         case "locking":
@@ -564,8 +569,10 @@ public void DoCargoAction()
     }
     Echo("Cargos are " + (isEmpty ? "empty." : "not empty (" + Math.Round(left*1000.0,2) + " L left)."));
 
+    float batteryLevel = GetBatteryChargeLevel();
+
     Mode = "wait";
-    if (isEmpty || GetBatteryChargeLevel() < BatteryEmergencyLevel) {
+    if (isEmpty || batteryLevel < BatteryEmergencyLevel) {
         Mode = "done";
     }
 }
@@ -578,11 +585,16 @@ public float GetBatteryChargeLevel()
     List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
     foreach(IMyBatteryBlock battery in batteries) {
+            if(battery.CubeGrid != Me.CubeGrid) continue;
             max += battery.MaxStoredPower;
             current += battery.CurrentStoredPower;
     }
 
-    return (1f / max) * current;
+    float batteryLevel = (1f / max) * current;
+
+    Echo("Battery Charge:" + Math.Round(batteryLevel*100f, 2) +"% (min: " + Math.Round(BatteryEmergencyLevel * 100f, 2) + "%)");
+
+    return batteryLevel;
 }
 
 double LoadActionOldLeft = 0.0;

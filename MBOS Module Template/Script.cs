@@ -323,7 +323,6 @@ public void Uninstall()
 public void Output(String text)
 {
     if (Bus == null || Bus.Core == null || Bus.Core.Display == null) {
-        Bus = null;
         Echo("No Core LCD to output: "+text);
         return;
     }
