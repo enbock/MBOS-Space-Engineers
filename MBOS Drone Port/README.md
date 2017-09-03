@@ -34,7 +34,7 @@ In follow run the script with
 
 Examples:
 
-		SET:1:Port 1:CARGO:Ore:0:0,-20,0:0
+		SET:1:Port 1:CARGO:Ore:0:0,-20,0
 		SET:2:Port 2:CHARGE:ANY:0:0,-20,0
 		SET:3:Port 3:LOAD:Ore:0:0,-20,0
 		SET:4:Port 4:CARGO:AmmoMagazine:1000:0,-20,0
