@@ -1,4 +1,4 @@
-const String VERSION = "1.2.0";
+const String VERSION = "1.4.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -80,10 +80,12 @@ float BatteryRechargeLevel = 0.75f;
 IMyShipConnector connector;
 IMyRemoteControl CtrlFlight;
 IMyRemoteControl CtrlDock;
+IMyRemoteControl CtrlUnDock;
 
 Vector3D TargetVector = new Vector3D();
 Vector3D OffsetFlight = new Vector3D();
 Vector3D OffsetDock = new Vector3D();
+Vector3D OffsetUnDock = new Vector3D();
 
 Vector3D FlightTarget = new Vector3D();
 Vector3D DockTarget = new Vector3D();
@@ -109,6 +111,7 @@ public void initProgram() {
     connector = GetBlockByName(GetConfig("Connector").Value) as IMyShipConnector;
     CtrlFlight = GetBlockByName(GetConfig("FlightControl").Value) as IMyRemoteControl;
     CtrlDock = GetBlockByName(GetConfig("DockControl").Value) as IMyRemoteControl;
+    CtrlUnDock = GetBlockByName(GetConfig("UnDockControl").Value) as IMyRemoteControl;
 
     string value = GetConfig("TimeOut").Value;
     int TimeOut = Int32.Parse(value == String.Empty ? "0" : value);
@@ -151,6 +154,9 @@ public void Main(string argument) {
             return;
         }
     }
+    if(CtrlUnDock == null) {
+        CtrlUnDock = GetBlockByName(GetConfig("UnDockControl").Value) as IMyRemoteControl;
+    }
 
     string[] args = argument.Split('|');
     //Echo(argument);
@@ -160,6 +166,9 @@ public void Main(string argument) {
     Vector3D relationPosition = connector.CubeGrid.GridIntegerToWorld(connector.Position + new Vector3I(0, -2, 0));
     OffsetFlight = relationPosition - CtrlFlight.GetPosition();
     OffsetDock = relationPosition - CtrlDock.GetPosition();
+    if (CtrlUnDock != null) {
+        OffsetUnDock = relationPosition - CtrlUnDock.GetPosition();
+    }
 
     TimeAfterDock++;
     TimeAfterUndock++;
@@ -366,6 +375,7 @@ public void ApplyActionNow()
 }
 
 bool FlightAndDockFlip = false;
+double FlightAndDockOldDistance = 0.0;
 public void DoFlightAndDock()
 {
     bool flightOn = false;
@@ -403,7 +413,8 @@ public void DoFlightAndDock()
                 CtrlDock.ClearWaypoints();
                 TargetVector = DockTarget - OffsetDock;
                 CtrlDock.AddWaypoint(TargetVector, "Dock " + Math.Round(distance));
-                dockOn = distance < 7.0 ? FlightAndDockFlip : true;
+                dockOn = distance < 7.0 || FlightAndDockOldDistance == distance ? FlightAndDockFlip : true;
+                FlightAndDockOldDistance = distance;
             }
             break;
         case "locking":
@@ -437,6 +448,12 @@ public void DoUndock()
     bool isReached;
     bool dockOn = false;
 
+    IMyRemoteControl ctrlDock = CtrlDock;
+
+    if(CtrlUnDock != null) {
+        ctrlDock = CtrlUnDock;
+    }
+
     switch(Mode)
     {
         case "none":
@@ -450,23 +467,23 @@ public void DoUndock()
                     Mode = "done";
                     break;
                 }
-                CtrlDock.ClearWaypoints();
+                ctrlDock.ClearWaypoints();
                 TargetVector = FlightTarget - OffsetFlight;
-                CtrlDock.AddWaypoint(TargetVector, "Undock");
+                ctrlDock.AddWaypoint(TargetVector, "Undock");
                 dockOn = true;
                 Mode="flight";
             }
             break;
 
         case "flight":
-            isReached = Vector3D.Distance(CtrlDock.GetPosition(), TargetVector) <= TargetTolerance;
+            isReached = Vector3D.Distance(ctrlDock.GetPosition(), TargetVector) <= TargetTolerance;
             dockOn = !isReached;
             if(isReached) {
                 Mode = "done";
             }
             break;
     }
-    CtrlDock.SetAutoPilotEnabled(dockOn);
+    ctrlDock.SetAutoPilotEnabled(dockOn);
 }
 
 /**
@@ -529,6 +546,7 @@ public void DisableAutoPilot()
 {
     if(CtrlFlight.IsAutoPilotEnabled) CtrlFlight.SetAutoPilotEnabled(false);
     if(CtrlDock.IsAutoPilotEnabled) CtrlDock.SetAutoPilotEnabled(false);
+    if(CtrlUnDock != null && CtrlUnDock.IsAutoPilotEnabled) CtrlUnDock.SetAutoPilotEnabled(false);
 }
 
 
@@ -627,9 +645,12 @@ public void DoLoadAction()
         countDown = 120;
     }
 
+    
+    float batteryLevel = GetBatteryChargeLevel();
+
     Echo("Start countdown: " + (countDown - LoadActionCounter));
     //(i) Also, limit to 120s to wait, after last cargo change
-    Mode = isFull || LoadActionCounter > countDown ? "done" : "wait";
+    Mode = isFull || LoadActionCounter > countDown || batteryLevel < BatteryEmergencyLevel ? "done" : "wait";
 }
 
 List<IMyInteriorLight> AnimatedLights = new List<IMyInteriorLight>();

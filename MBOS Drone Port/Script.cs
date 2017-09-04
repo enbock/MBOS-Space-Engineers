@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "DronePort";
 // Module version
-const String VERSION = "1.0.2";
+const String VERSION = "1.0.3";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -608,8 +608,15 @@ public void DoRequire(string[] stack)
     );
 
     foreach(DronePort port in Ports) {
-        if (port.UsedBy != String.Empty) continue;
-        if (port.Action != stack[1]) continue;
+        if (port.UsedBy != String.Empty) {
+            Echo("Port "+port.Number+" is used.");
+            continue;
+        }
+        if (port.Action != stack[1]) 
+        {
+            Echo("Port "+port.Number+" has wrong action("+port.Action+" != "+ stack[1]+")");
+            continue;
+        }
 
         // Filters
         switch(port.Action) {
@@ -623,11 +630,18 @@ public void DoRequire(string[] stack)
 
             case "CARGO":
                 if (port.Type == "ANY") break; // takeing all
-                if (stack.Length < 6) continue; // don't want all
+                if (stack.Length < 7) {
+                    Echo ("No data for cargo type.");
+                    continue; // don't want all
+                }
                 string providedCargo = stack[6].Trim();
-                if (port.Type != providedCargo) continue; // dont want that cargo
+                if (port.Type != providedCargo) {
+                    Echo ("Prov. Cargo "+providedCargo +" is not "+port.Type);
+                    continue; // dont want that cargo
+                }
 
                 if (port.Amount != 0L && CountCargoType(port.Type) >= port.Amount) {
+                    Echo ("Have enough "+port.Type);
                     // no, we have enought
                     continue;
                 }
