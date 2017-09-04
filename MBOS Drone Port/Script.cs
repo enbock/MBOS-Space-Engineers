@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "DronePort";
 // Module version
-const String VERSION = "1.0.3";
+const String VERSION = "1.0.7";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -43,6 +43,8 @@ public class DronePort
     public IMyShipConnector Connector;
     public Vector3I Offset = new Vector3I();
     protected String usedBy = String.Empty;
+    public String CustomName;
+    public String LastAction;
 
     /**
      * Create droneport from config string.
@@ -50,11 +52,12 @@ public class DronePort
     public DronePort(String configData, IMyGridTerminalSystem GridTerminalSystem, IMyCubeGrid CubeGrid)
     {
         string[] config = configData.Split(':');
+        CustomName = config[2];
 
         List<IMyShipConnector> connectors = new List<IMyShipConnector>();
         GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(connectors);
         foreach (IMyShipConnector connector in connectors) {
-            if (connector.CubeGrid == CubeGrid && connector.CustomName == config[2]) {
+            if (connector.CubeGrid == CubeGrid && connector.CustomName == CustomName) {
                 Add(config, connector);
                 break;
             }
@@ -91,7 +94,15 @@ public class DronePort
         if (config.Length >= 8) {
             usedBy = config[7];
         }
+        if (config.Length >= 9) {
+            LastAction = config[8];
+        }
 
+        Save();
+    }
+
+    public void Save()
+    {
         Connector.CustomData = ToString();
     }
 
@@ -99,7 +110,7 @@ public class DronePort
         get { return usedBy; }
         set {
             usedBy = value;
-            Connector.CustomData = ToString();
+            Save();
         }
     }
 
@@ -111,7 +122,7 @@ public class DronePort
         return "PORT:" + Number + ":" + Connector.CustomName + ":" + Action 
             + ":" + Type + ":" + Amount
             + ":" + Offset.X + "," + Offset.Y + "," + Offset.Z
-            + ":" + usedBy
+            + ":" + usedBy + ":" + LastAction
         ;
     } 
 
@@ -147,7 +158,6 @@ public void Save()
 */
 public Program()
 {
-
     if (Me.CustomData.Length == 0) return;
     String[] store = Me.CustomData.Split('\n');
     foreach(String line in store) {
@@ -172,6 +182,14 @@ public Program()
             connector.CustomData.Substring(0, 4) == "PORT"
         ) {
             Ports.Add(new DronePort(connector));
+        }
+    }
+    int i;
+    for(i = Ports.Count -1 ; i >= 0; i--) {
+        DronePort port = Ports[i];
+        if (port.Connector == null) {
+            Echo("Can not find connector: " + port.CustomName);
+            Ports.Remove(port);
         }
     }
     Main("");
@@ -224,7 +242,7 @@ public void Main(String argument)
     Blocks.Clear();
     LoadConfigs();
 
-    Echo("Arg: " + argument);
+    //Echo("Arg: " + argument);
 
     if (argument != "UNINSTALL" && Bus == null) {
         Echo("Search bus...");
@@ -248,7 +266,14 @@ public void Main(String argument)
                     old = GetPort(Int32.Parse(args[1]));
                     if (old != null) Ports.Remove(old);
                     Ports.Add(new DronePort(argument, GridTerminalSystem, Me.CubeGrid));
-                    Echo("3");
+                    int i;
+                    for(i = Ports.Count -1 ; i >= 0; i--) {
+                        DronePort port = Ports[i];
+                        if (port.Connector == null) {
+                            Echo("Can not find connector: " + port.CustomName);
+                            Ports.Remove(port);
+                        }
+                    }
                     break;
                 case "CLEAR":
                     Ports.Clear();
@@ -397,7 +422,7 @@ public void AddCall(Module core, String blockId, String argument) {
                     if(parts.Length == 2) stack = parts[1];
 
                     // Add to stack
-                    Echo("Send " + blockId + "~" + argument);
+                    //Echo("Send " + blockId + "~" + argument);
                     if(stack == String.Empty) {
                         stack = blockId + "~" + argument;
                     } else {
@@ -429,6 +454,7 @@ public void DetailedInfo()
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
+        + "NetID=" + MyName() + "\n"
     );
 
     string ports = "";
@@ -476,7 +502,7 @@ public void Uninstall()
 public void Output(String text)
 {
     if (Bus == null || Bus.Core == null || Bus.Core.Display == null) {
-        Echo("No Core LCD to output: "+text);
+        Echo("No Core LCD to output.");
         return;
     }
     Bus.Core.Display.WritePublicText(text + "\n", true);
@@ -561,11 +587,11 @@ public void OnEvent(String eventName, String sourceId, String data)
                 } else if (stack[1] == "DOCKED") {
                     DoDockPort(stack);
                 } else if (stack[1] == "DOCKED") {
-                    CleanDockPort(stack);
+                    CleanDockPort(stack, false);
                     DoDockPort(stack);
                 }
             } else if (stack[1] == "DOCKED") {
-                CleanDockPort(stack);
+                CleanDockPort(stack, true);
             }
             break;
         default:
@@ -607,14 +633,16 @@ public void DoRequire(string[] stack)
         Double.Parse(stack[4])
     );
 
+    Echo("Receive question for " + stack[1] + ":");
+
     foreach(DronePort port in Ports) {
         if (port.UsedBy != String.Empty) {
-            Echo("Port "+port.Number+" is used.");
+            Echo("[-] Port "+port.Number+" is used.");
             continue;
         }
         if (port.Action != stack[1]) 
         {
-            Echo("Port "+port.Number+" has wrong action("+port.Action+" != "+ stack[1]+")");
+            Echo("[-] Port "+port.Number+" is "+port.Action+".");
             continue;
         }
 
@@ -624,6 +652,7 @@ public void DoRequire(string[] stack)
                 if (port.Type == "ANY") break; // provide all all
                 if (CountCargoType(port.Type) <= port.Amount) {
                     // We dont have enough cargo
+                    Echo("[-] Port "+port.Number+" no " + port.Amount + " of " + port.Type + " in containers.");
                     continue;
                 }
                 break;
@@ -631,27 +660,31 @@ public void DoRequire(string[] stack)
             case "CARGO":
                 if (port.Type == "ANY") break; // takeing all
                 if (stack.Length < 7) {
-                    Echo ("No data for cargo type.");
+                    Echo ("[-] Port "+port.Number+" is not request without cargo type.");
                     continue; // don't want all
                 }
                 string providedCargo = stack[6].Trim();
                 if (port.Type != providedCargo) {
-                    Echo ("Prov. Cargo "+providedCargo +" is not "+port.Type);
+                    Echo ("[-] Port "+port.Number+" do not provide "+providedCargo+".");
                     continue; // dont want that cargo
                 }
 
                 if (port.Amount != 0L && CountCargoType(port.Type) >= port.Amount) {
-                    Echo ("Have enough "+port.Type);
+                    Echo ("[-] Port "+port.Number+" dont need "+port.Type+" yet.");
                     // no, we have enought
                     continue;
                 }
                 break;
         }
 
+        
+        Echo ("[+] Port "+port.Number+" can be used.");
         double distance = Vector3D.Distance(port.Connector.GetPosition(), dronePosition);
         string data = stack[5] + "|" + port.Action + "|" + port.Number + "|" + distance + "|" + MyName();
         AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+        return;
     }
+    Echo("This station has no ports for " + stack[1] + " yet.");
 }
 
 /**
@@ -666,12 +699,14 @@ public void DoRequestPort(string[] stack)
             if(port.UsedBy == stack[4]) return; // allready assigned
 
             // Assigned by other
-            data = stack[3] + "|" + stack[2] + "|DENIED|" + MyName();
+            data = stack[4] + "|" + stack[2] + "|DENIED|" + MyName();
             AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/SendRadio/" + GetId(Me) +  "/" + data);
+            return;
         }
         //if (port.Action != stack[2]) continue;
 
         port.UsedBy = stack[4]; // reserve
+        port.LastAction = "reserved";
 
         Vector3D  flightPoint = Me.CubeGrid.GridIntegerToWorld(port.Connector.Position - port.Offset);
         Vector3D  connectPoint = port.Connector.GetPosition();
@@ -693,7 +728,8 @@ public void DoRequestPort(string[] stack)
 public void DoReleasePort(string[] stack)
 {
     foreach(DronePort port in Ports) {
-        if (port.UsedBy != stack[2]) continue;
+        if (port.UsedBy != stack[2] || port.LastAction == "dock") continue;
+        port.LastAction = String.Empty;
         port.UsedBy = String.Empty;
     }
 }
@@ -701,10 +737,11 @@ public void DoReleasePort(string[] stack)
 /**
  * Remove reservation(s) of a ship when docked anywhere.
  */
-public void CleanDockPort(string[] stack)
+public void CleanDockPort(string[] stack, bool force)
 {
     foreach(DronePort port in Ports) {
-        if (port.UsedBy == stack[3]) {
+        if (port.UsedBy == stack[3] && (force == true || port.LastAction == "dock")) {
+            port.LastAction = String.Empty;
             port.UsedBy = String.Empty;
         }
     }
@@ -717,6 +754,7 @@ public void DoDockPort(string[] stack)
 {
     foreach(DronePort port in Ports) {
         if (port.Number != Int32.Parse(stack[2])) continue;
+        port.LastAction = "dock";
         port.UsedBy = stack[3];
         return;
     }

@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "Transmitter";
 // Module version
-const String VERSION = "1.1.0";
+const String VERSION = "1.1.1";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -41,6 +41,7 @@ string LastSendData = "";
 string LastRepeatedData = "";
 long Timestamp;
 IMyTextPanel DebugScreen = null;
+String LastAction = "Init";
 
 List<String> Traffic = new List<String>();
 
@@ -59,8 +60,8 @@ public void Save()
                 ) 
             ) : ""
         ) + "\n"
-        + (Antenna != null ? "Antenna=" + Antenna : "" + "\n")
-        + (DebugScreen != null ? "Screen=" + GetId(DebugScreen) : "" + "\n")
+        + (Antenna != null ? "Antenna=" + Antenna : "") + "\n"
+        + (DebugScreen != null ? "Screen=" + GetId(DebugScreen) : "") + "\n"
     ;
 }
 
@@ -87,6 +88,7 @@ public Program()
         }
     }
     DetailedInfo();
+    Main("");
 }
 
 /**
@@ -126,7 +128,7 @@ public void Main(String argument)
         Traffic.RemoveRange(0, Traffic.Count - 40);
     }
 
-    Echo("Arg: " + argument);
+    //Echo("Arg: " + argument);
 
     if (argument != "UNINSTALL" && Bus == null) {
         Echo("Search bus...");
@@ -141,13 +143,11 @@ public void Main(String argument)
             Uninstall();
         } else if (argument.IndexOf("SCREEN") != -1) {
             string[] stack = argument.Split('|');
-            Echo("Took Screen");
             DebugScreen = GetBlockByName(stack[1]) as IMyTextPanel;
+            Echo("Took Screen");
         } else if (argument != String.Empty) {
-            Echo("Antenna: " + (Antenna == null ? "missing" : "ok"));
             if (Antenna == null) {
                 GetAntenna(argument);
-                if (Antenna != null)  Save();
             } else {
                 ReceiveData(argument);
             }
@@ -155,6 +155,7 @@ public void Main(String argument)
     }
     
     DetailedInfo();
+    Save();
 }
 
 /**
@@ -180,11 +181,12 @@ public void GetAntenna(string name)
  */
 public void ReceiveData(string incoming)
 {
+
     if (incoming == LastSendData || incoming == LastRepeatedData) 
     {
         return; // ignore own echoed data
     }
-
+    LastAction = "Receive";
     
     Traffic.Add("< " + incoming);
         
@@ -345,7 +347,7 @@ public void AddCall(Module core, String blockId, String argument) {
                     if(parts.Length == 2) stack = parts[1];
 
                     // Add to stack
-                    Echo("Send " + blockId + "~" + argument);
+                    //Echo("Send " + blockId + "~" + argument);
                     if(stack == String.Empty) {
                         stack = blockId + "~" + argument;
                     } else {
@@ -373,7 +375,8 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=" + NAME + "\n"
+        "Action: " + LastAction + "...\n\n"
+        + "MODULE=" + NAME + "\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
@@ -503,6 +506,7 @@ public void OnEvent(String eventName, String sourceId, String data)
             (Antenna.Block as IMyRadioAntenna).TransmitMessage(message);
             LastSendData = message;
             Traffic.Add("> " + message);
+            LastAction = "Transmit";
             break;
         default:
             Echo("Unknown received event: " + eventName);

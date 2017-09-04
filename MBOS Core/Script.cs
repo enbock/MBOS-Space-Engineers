@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.1.0";
+﻿const String VERSION = "2.1.1";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -79,7 +79,7 @@ public class Call {
 */
 public void Main(string argument)
 {
-    Echo(argument);
+    //Echo(argument);
     
     // clear buffer
     Blocks.Clear();
@@ -461,11 +461,11 @@ public void InvokeCalls()
     Call call = CallStack[0];
     CallStack.Remove(call);
     if (call.Block == Me) {
-        Echo("Run Me with '" + call.Argument + "'");
+        //Echo("Run Me with '" + call.Argument + "'");
         // I can't call my self ;) ... so call the core direct.
         ReadArgument(call.Argument);
     } else {
-        Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
+        //Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
         call.Block.TryRun(call.Argument);
         LastCalled.Add(call.Block);
 
@@ -482,6 +482,7 @@ public void InvokeCalls()
         callList.Add(call4String.GetId()+"~"+call4String.Argument);
     }
     GetConfig("CallStack").Value = String.Join("#", callList);
+    Echo("CallStack=" + callList.Count);
 }
 
 /**

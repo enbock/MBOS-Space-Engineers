@@ -1,4 +1,4 @@
-const String VERSION = "1.4.1";
+const String VERSION = "1.4.2";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -90,7 +90,7 @@ Vector3D FlightTarget = new Vector3D();
 Vector3D DockTarget = new Vector3D();
 
 bool IsLocked = false;
-double TargetTolerance = 15.0;
+double TargetTolerance = 10.0;
 int LoadActionCounter = 0;
 double FlightDistance = 0.0;
 int TimeAfterDock = 0;
@@ -260,6 +260,7 @@ public void Main(string argument)
     Echo ("AfterUndock: " + TimeAfterUndock);
     Echo("After Count: " + TimeAfter);
     */
+    Echo("NetID: " + MyName());
     Echo("Distance: " + Math.Round(FlightDistance, 2));
     Echo("Action: " + Action); 
     Echo("Target: " + TargetPosition); 
@@ -342,6 +343,7 @@ public void ReceiveCom(string[] stack)
 
     if (Mode == "requirePort" && stack[3] == "RESERVED") {
         ConfirmedActionData = String.Join("|", stack);
+        PossibleActionData = String.Empty;
         Mode = "done";
         return;
     }
@@ -424,6 +426,12 @@ public void DoFlightAndDock()
                 Mode = "locking";                
             } else {
                 double distance = Vector3D.Distance(CtrlDock.GetPosition(), (DockTarget - OffsetDock));
+
+                if (FlightAndDockOldDistance < distance) {
+                    // Abort dock and try again
+                    Mode = "none";
+                }
+
                 CtrlDock.ClearWaypoints();
                 TargetVector = DockTarget - OffsetDock;
                 CtrlDock.AddWaypoint(TargetVector, "Dock " + Math.Round(distance));

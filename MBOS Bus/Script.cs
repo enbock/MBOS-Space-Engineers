@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.1";
+﻿const String VERSION = "1.1.2";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -144,7 +144,7 @@ String lastArg = "";
 public void Main(string argument)
 {
     //Echo("> " + lastArg);
-    Echo(argument);
+    //Echo(argument);
     lastArg = argument;
     
     // clear buffer
@@ -406,6 +406,7 @@ public void DispatchEvent(string eventName, string sender, string data)
     EventList list = RegisteredEvents.Find(x => x.Key == eventName);
     if(list == null) return;
     foreach(Module module in list.Observers) {
+        Echo(eventName + " -> " + sender);
         AddCall(module.ToString(), "API://Dispatched/" + eventName + "/" + sender + "/" + GetId(Me) + "/" + data);
     }
 }
