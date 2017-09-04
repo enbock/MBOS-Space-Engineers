@@ -53,7 +53,7 @@ Examples:
 
 ## Require an action
 
-* Done: `NEED|<ACTION>|<X>|<Y>|<Z>|<SHIP NAME>[|<CARGO TYPE>]`
+* Done: `NEED|<ACTION>|<X>|<Y>|<Z>|<SHIP NAME>|<CARGO TYPE>`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|<DISTANCE>|<STATION NAME>` (multiple port answers)
 * Drone: `<STATION NAME>|REQUEST|<ACTION>|<PORT NUMBER>|<SHIP NAME>`
 * Port: `<SHIP NAME>|<ACTION>|<PORT NUMBER>|RESERVED|<X1>|<Y1>|<Z1>|<X2>|<Y2>|<Z2>|<STATION NAME>`
@@ -67,6 +67,10 @@ Examples:
 
 * Drone: `<STATION NAME>|RELEASED|<SHIP NAME>`
 
+## Transmitter Extension
+The MBOS transmitter needs a timestamp understand new and old messages.
+
+Each Message get now a timestamo before: `<TIME>|<MESSAGE>`
+
 # Configs
-* `ProvideCargo` - comma separated list of provided cargo items to transport. eg. `Ore,Ammo`
-* `AcceptCargo` - Configure which types of cargo can be delivered. eg. `Ore,Ammo`
+* See empty values in CustomData of the programmable block ;)

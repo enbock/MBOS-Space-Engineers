@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "Transmitter";
 // Module version
-const String VERSION = "1.0.1";
+const String VERSION = "1.1.0";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -38,6 +38,11 @@ List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 
 Module Antenna = null;
 string LastSendData = "";
+string LastRepeatedData = "";
+long Timestamp;
+IMyTextPanel DebugScreen = null;
+
+List<String> Traffic = new List<String>();
 
 /**
 * Store data.
@@ -53,8 +58,9 @@ public void Save()
                     )
                 ) 
             ) : ""
-        ) + " \n"
+        ) + "\n"
         + (Antenna != null ? "Antenna=" + Antenna : "" + "\n")
+        + (DebugScreen != null ? "Screen=" + GetId(DebugScreen) : "" + "\n")
     ;
 }
 
@@ -75,6 +81,9 @@ public Program()
         }
         if (line.IndexOf("Antenna=") == 0) {
             GetAntenna(args[1]);
+        }
+        if (line.IndexOf("Screen=") == 0) {
+            DebugScreen = GetBlock(args[1]) as IMyTextPanel;
         }
     }
     DetailedInfo();
@@ -110,7 +119,12 @@ public void LoadBusFromConfig(String config)
 */
 public void Main(String argument)
 {
+    Timestamp = System.DateTime.Now.ToBinary();
     Blocks.Clear();
+    
+    if(Traffic.Count > 40) {
+        Traffic.RemoveRange(0, Traffic.Count - 40);
+    }
 
     Echo("Arg: " + argument);
 
@@ -125,7 +139,12 @@ public void Main(String argument)
     } else {
         if (argument == "UNINSTALL") {
             Uninstall();
+        } else if (argument.IndexOf("SCREEN") != -1) {
+            string[] stack = argument.Split('|');
+            Echo("Took Screen");
+            DebugScreen = GetBlockByName(stack[1]) as IMyTextPanel;
         } else if (argument != String.Empty) {
+            Echo("Antenna: " + (Antenna == null ? "missing" : "ok"));
             if (Antenna == null) {
                 GetAntenna(argument);
                 if (Antenna != null)  Save();
@@ -161,11 +180,21 @@ public void GetAntenna(string name)
  */
 public void ReceiveData(string incoming)
 {
-    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/RadioData/" + GetId(Me) +  "/" + incoming);
-    if (incoming != LastSendData) {
-        (Antenna.Block as IMyRadioAntenna).TransmitMessage(incoming);
-        LastSendData = incoming;
+    if (incoming == LastSendData || incoming == LastRepeatedData) 
+    {
+        return; // ignore own echoed data
     }
+
+    
+    Traffic.Add("< " + incoming);
+        
+    string[] stack = incoming.Split('|');
+    stack = stack.Skip(1).ToArray(); // remove timestamp
+    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/RadioData/" + GetId(Me) +  "/" + String.Join("|", stack));
+    
+    // repeat
+    (Antenna.Block as IMyRadioAntenna).TransmitMessage(incoming);
+    LastRepeatedData = incoming;
 }
 
 /**
@@ -349,9 +378,12 @@ public void DetailedInfo()
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
         + "Antenna: " + (Antenna != null ? Antenna.ToString() : "") + "\n"
+        + "Screen: " + (DebugScreen != null ? DebugScreen.CustomName : "") + "\n"
     );
     
-    Output("[" + NAME + " v" + VERSION + "] \n  " + LastSendData+"\n\n");
+    Output("[" + NAME + " v" + VERSION + "] \n  Last Send: " + LastSendData+" \n  Last Repeat: " + LastRepeatedData+"\n\n");
+
+    DebugTraffic();
 }
 
 /**
@@ -466,12 +498,30 @@ public void OnEvent(String eventName, String sourceId, String data)
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
         case "SendRadio":
+            String message = Timestamp + "|" + data;
             // Send data to antenna.
-            (Antenna.Block as IMyRadioAntenna).TransmitMessage(data);
-            LastSendData = data;
+            (Antenna.Block as IMyRadioAntenna).TransmitMessage(message);
+            LastSendData = message;
+            Traffic.Add("> " + message);
             break;
         default:
             Echo("Unknown received event: " + eventName);
             break;
     }
+}
+
+public void DebugTraffic()
+{
+    if(DebugScreen == null) return;
+
+    String output = "";
+
+    int i;
+    for(i=Traffic.Count - 1; i >= 0; i--) {
+        output += Traffic[i]+"\n";
+    }
+
+    DebugScreen.WritePublicText(output, false);
+    DebugScreen.ShowTextureOnScreen();
+    DebugScreen.ShowPublicTextOnScreen();
 }

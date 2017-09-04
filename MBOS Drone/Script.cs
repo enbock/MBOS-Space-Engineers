@@ -1,4 +1,4 @@
-const String VERSION = "1.4.0";
+const String VERSION = "1.4.1";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -86,7 +86,6 @@ Vector3D TargetVector = new Vector3D();
 Vector3D OffsetFlight = new Vector3D();
 Vector3D OffsetDock = new Vector3D();
 Vector3D OffsetUnDock = new Vector3D();
-
 Vector3D FlightTarget = new Vector3D();
 Vector3D DockTarget = new Vector3D();
 
@@ -101,11 +100,15 @@ int TimeAfter = 0;
 string LoadedGoods = "";
 string ActionOfDocked = "";
 
-public Program() {
+long Timestamp = 0L;
+
+public Program() 
+{
     initProgram();
 }
 
-public void initProgram() {
+public void initProgram() 
+{
     LoadConfigFromCustomData();
 
     connector = GetBlockByName(GetConfig("Connector").Value) as IMyShipConnector;
@@ -125,7 +128,8 @@ public void initProgram() {
 /**
 * Store config memory.
 */
-public void Save() { 
+public void Save() 
+{ 
     Me.CustomData = FormatConfig(Config); 
 } 
 
@@ -144,7 +148,9 @@ public String FormatConfig(List<ConfigValue> config)
     return "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
 }
 
-public void Main(string argument) {
+public void Main(string argument) 
+{
+    Timestamp = System.DateTime.Now.ToBinary();
     LoadConfigFromCustomData();
     if(connector == null || CtrlFlight == null || CtrlDock == null) {
         initProgram();
@@ -175,22 +181,24 @@ public void Main(string argument) {
     TimeAfterFlight++;
     TimeAfter++;
 
-    switch(args[0])
-    {
-        // reset
-        case "r":
-            Mode = "none";
-            Action = "NONE";
-            TargetPosition = "NONE";
-            DisableAutoPilot();
-            break;
+    if (argument.Trim() != String.Empty) {
+        switch(args[0])
+        {
+            // reset
+            case "r":
+                Mode = "none";
+                Action = "NONE";
+                TargetPosition = "NONE";
+                DisableAutoPilot();
+                break;
 
-        default:
-            if (args[0] == MyName()) {
-                ReceiveCom(args);
-            }
-            break;
+            default:
+                if (args[1] == MyName()) {
+                    ReceiveCom(args);
+                }
+                break;
 
+        }
     }
 
     // Run commands
@@ -308,9 +316,9 @@ public void DoRequestHandling()
 
     Echo("Requested Action: " + RequestedAction);
     stack = PossibleActionData.Split('|');
-    Echo("Selected: " +(stack.Length < 2 ? "Nothing" : "Go to " + stack[4] + " and dock on port #" + stack[2] + " to " + stack[1]));
+    Echo("Selected: " +(stack.Length < 2 ? "Nothing" : "Port #" + stack[2] + " at " + stack[4]));
     stack = ConfirmedActionData.Split('|');
-    Echo("Confirmed: " +(stack.Length < 2 ? "Nothing" : "Go to " + stack[10] + " and dock on port #" + stack[2] + " to " + stack[1]));
+    Echo("Confirmed: " +(stack.Length < 2 ? "Nothing" : "Port #" + stack[2] + " at " + stack[4]));
     Echo("Counter:" +TimeAfter);
 }
 
@@ -319,6 +327,12 @@ public void DoRequestHandling()
  */
 public void ReceiveCom(string[] stack)
 {
+    stack = stack.Skip(1).ToArray(); // remove timestamp
+
+    foreach(string i in stack) {
+        Echo(i);
+    }
+
     if (Mode == "requirePort" && stack[2] == "DENIED") {
         PossibleActionData = String.Empty;
         ConfirmedActionData = String.Empty;
@@ -337,8 +351,8 @@ public void ReceiveCom(string[] stack)
             PossibleActionData = String.Join("|", stack);
             return;
         }
-        string[] breforeAction = PossibleActionData.Split('|');
-        if(Double.Parse(stack[3]) < Double.Parse(breforeAction[3])) {
+        string[] beforeAction = PossibleActionData.Split('|');
+        if(Double.Parse(stack[3]) < Double.Parse(beforeAction[3])) {
             PossibleActionData = String.Join("|", stack);
             return;
         }
@@ -745,7 +759,7 @@ public void Transmit(String data)
     GridTerminalSystem.GetBlocksOfType<IMyRadioAntenna>(antennaList);
     foreach(IMyRadioAntenna antenna in antennaList) {
         if (antenna.CubeGrid == Me.CubeGrid && antenna.IsBroadcasting) {
-            antenna.TransmitMessage(data);
+            antenna.TransmitMessage(Timestamp + "|" + data);
             Echo("Transmit: " + data);
             return;
         }
@@ -772,7 +786,7 @@ public string FindNextAction()
     }
 
     // Find first loaded good.
-    LoadedGoods = String.Empty;
+    LoadedGoods = GetConfig("LimitedToCargoType").Value;
     List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
     GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(cargo);
     foreach(IMyCargoContainer container in cargo) {
