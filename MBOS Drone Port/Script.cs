@@ -1,7 +1,7 @@
 // Module Name
 const String NAME = "DronePort";
 // Module version
-const String VERSION = "1.0.7";
+const String VERSION = "1.0.11";
 // The data format version.
 const String DATA_FORMAT = "1.0";
 
@@ -450,7 +450,7 @@ public void AddCall(Module core, String blockId, String argument) {
 public void DetailedInfo()
 {
     Echo(
-        "MODULE=" + NAME + "\n"
+        "\nMODULE=" + NAME + "\n"
         + "ID=" +GetId(Me) + "\n"
         + "VERSION=" + VERSION + "\n"
         + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
@@ -585,8 +585,6 @@ public void OnEvent(String eventName, String sourceId, String data)
                 } else if (stack[1] == "RELEASED") {
                     DoReleasePort(stack);
                 } else if (stack[1] == "DOCKED") {
-                    DoDockPort(stack);
-                } else if (stack[1] == "DOCKED") {
                     CleanDockPort(stack, false);
                     DoDockPort(stack);
                 }
@@ -646,29 +644,29 @@ public void DoRequire(string[] stack)
             continue;
         }
 
+        if (port.Type != "ANY" ) {
+            if (stack.Length < 7) {
+                Echo ("[-] Port "+port.Number+" is not request without cargo type.");
+                continue; // don't want all
+            }
+            string providedCargo = stack[6].Trim();
+            if (port.Type != providedCargo) {
+                Echo ("[-] Port "+port.Number+" do not provide "+providedCargo+".");
+                continue; // dont want that cargo
+            }
+        }
+
         // Filters
         switch(port.Action) {
             case "LOAD": 
-                if (port.Type == "ANY") break; // provide all all
                 if (CountCargoType(port.Type) <= port.Amount) {
                     // We dont have enough cargo
-                    Echo("[-] Port "+port.Number+" no " + port.Amount + " of " + port.Type + " in containers.");
+                    Echo("[-] Port "+port.Number+" no " + (port.Amount > 0 ? port.Amount + " of " : "" ) + port.Type + " in containers.");
                     continue;
                 }
                 break;
 
             case "CARGO":
-                if (port.Type == "ANY") break; // takeing all
-                if (stack.Length < 7) {
-                    Echo ("[-] Port "+port.Number+" is not request without cargo type.");
-                    continue; // don't want all
-                }
-                string providedCargo = stack[6].Trim();
-                if (port.Type != providedCargo) {
-                    Echo ("[-] Port "+port.Number+" do not provide "+providedCargo+".");
-                    continue; // dont want that cargo
-                }
-
                 if (port.Amount != 0L && CountCargoType(port.Type) >= port.Amount) {
                     Echo ("[-] Port "+port.Number+" dont need "+port.Type+" yet.");
                     // no, we have enought
@@ -728,7 +726,8 @@ public void DoRequestPort(string[] stack)
 public void DoReleasePort(string[] stack)
 {
     foreach(DronePort port in Ports) {
-        if (port.UsedBy != stack[2] || port.LastAction == "dock") continue;
+        if (port.UsedBy != stack[2] || port.LastAction != "dock") continue;
+        Echo("[ ] Port "+port.Number+" freed.");
         port.LastAction = String.Empty;
         port.UsedBy = String.Empty;
     }
@@ -741,6 +740,7 @@ public void CleanDockPort(string[] stack, bool force)
 {
     foreach(DronePort port in Ports) {
         if (port.UsedBy == stack[3] && (force == true || port.LastAction == "dock")) {
+            Echo("[ ] Port "+port.Number+" freed.");
             port.LastAction = String.Empty;
             port.UsedBy = String.Empty;
         }

@@ -1,4 +1,4 @@
-const String VERSION = "1.4.2";
+const String VERSION = "1.4.3";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -330,11 +330,7 @@ public void ReceiveCom(string[] stack)
 {
     stack = stack.Skip(1).ToArray(); // remove timestamp
 
-    foreach(string i in stack) {
-        Echo(i);
-    }
-
-    if (Mode == "requirePort" && stack[2] == "DENIED") {
+    if (stack[2] == "DENIED") {
         PossibleActionData = String.Empty;
         ConfirmedActionData = String.Empty;
         RequestAction();

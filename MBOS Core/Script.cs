@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.1.1";
+﻿const String VERSION = "2.1.2";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -459,15 +459,16 @@ public void InvokeCalls()
     StoreToCustomData();
 
     Call call = CallStack[0];
-    CallStack.Remove(call);
     if (call.Block == Me) {
         //Echo("Run Me with '" + call.Argument + "'");
         // I can't call my self ;) ... so call the core direct.
         ReadArgument(call.Argument);
     } else {
         //Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
-        call.Block.TryRun(call.Argument);
-        LastCalled.Add(call.Block);
+        if (call.Block.TryRun(call.Argument)) {
+            LastCalled.Add(call.Block);
+            CallStack.Remove(call);
+        }
 
         // Append new calls of other blocks
         LoadFromCustomData();
