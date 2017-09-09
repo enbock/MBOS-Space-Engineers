@@ -1,4 +1,4 @@
-const String VERSION = "1.4.3";
+const String VERSION = "1.4.4";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -193,6 +193,7 @@ public void Main(string argument)
                 break;
 
             default:
+                TimeAfter--;
                 if (args[1] == MyName()) {
                     ReceiveCom(args);
                 }
@@ -328,19 +329,30 @@ public void DoRequestHandling()
  */
 public void ReceiveCom(string[] stack)
 {
+    if (Action != "REQUEST" || Mode == "done") {
+        /**
+         * The transmitter duplicate the messages. If I received the 
+         * "reserved" message  again, then I done the wrong action.
+         */
+        Echo("Duped message...");
+        return;
+    }
     stack = stack.Skip(1).ToArray(); // remove timestamp
 
     if (stack[2] == "DENIED") {
+        Echo("[FAIL] Other one was faster.");
         PossibleActionData = String.Empty;
         ConfirmedActionData = String.Empty;
         RequestAction();
         return;
     }
 
-    if (Mode == "requirePort" && stack[3] == "RESERVED") {
+    if (stack[3] == "RESERVED") {
+        Echo("[OK] Reservation received.");
         ConfirmedActionData = String.Join("|", stack);
         PossibleActionData = String.Empty;
         Mode = "done";
+        TimeAfter = 0;
         return;
     }
 

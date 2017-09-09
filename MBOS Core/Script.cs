@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.1.2";
+﻿const String VERSION = "2.2.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -95,6 +95,8 @@ public void Main(string argument)
         foreach(Module module in Modules) {
             AddCall(GetId(Me), "API://RemoveModule/"+module.ToString());
         }
+    }  else if (argument == "clean") {
+        GetConfig("CallStack").Value = String.Empty;
     } else {
         ReadArgument(argument);
     } 
