@@ -1,4 +1,4 @@
-const String VERSION = "1.4.4";
+const String VERSION = "1.4.&";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -227,8 +227,6 @@ public void Main(string argument)
 
     // Decider for next command
     if (Mode == "done") {
-        DisableAutoPilot();
-
         switch(Action)
         {
             case "UNDOCK":
@@ -385,6 +383,7 @@ public void ApplyConfirmedAction()
 
 public void ApplyActionNow()
 {
+    DisableAutoPilot();
     LoadFindTry = 0;
     string[] args = ConfirmedActionData.Split('|');
     Action = args[1];
@@ -431,7 +430,7 @@ public void DoFlightAndDock()
                 if(connector.Status != MyShipConnectorStatus.Connected) 
                     connector.GetActionWithName("SwitchLock").Apply(connector);
             } else if (IsLocked) {
-                Mode = "locking";                
+                Mode = "locking";         
             } else {
                 double distance = Vector3D.Distance(CtrlDock.GetPosition(), (DockTarget - OffsetDock));
 
@@ -454,6 +453,7 @@ public void DoFlightAndDock()
                 string[] args = ConfirmedActionData.Split('|');
                 Transmit(TargetPosition + "|DOCKED|" + args[2] + "|" + MyName());
 
+                DisableAutoPilot();
                 Mode = "done";
             } else {
                 Mode = "docking";
@@ -689,6 +689,25 @@ List<IMyLightingBlock> ConnectorLights = new List<IMyLightingBlock>();
 public void InitLightShow()
 {
     IMyLightingBlock light;
+
+    SpotLights.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyReflectorLight>(SpotLights);
+    for(int i = SpotLights.Count -1; i>= 0; i--) {
+        light = SpotLights[i];
+        if(light.CubeGrid != Me.CubeGrid) {
+            SpotLights.Remove(light as IMyReflectorLight);
+        }
+    }
+
+    String connectorLightName = GetConfig("ConnectorLight").Value;
+    ConnectorLights.Clear();
+    GridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(ConnectorLights);
+    for(int i = ConnectorLights.Count -1; i>= 0; i--) {
+        light = ConnectorLights[i];
+        if(light.CubeGrid != Me.CubeGrid || light.CustomName != connectorLightName) {
+            ConnectorLights.Remove(light);
+        }
+    }
     String lightPrefix = GetConfig("AnitmatedLightPrefix").Value;
     if(lightPrefix == "") {
         Echo("No 'AnitmatedLightPrefix' found.");
@@ -704,23 +723,6 @@ public void InitLightShow()
         light = AnimatedLights[i];
         if(light.CubeGrid != Me.CubeGrid || light.CustomName.IndexOf(lightPrefix, StringComparison.Ordinal) != 0) {
             AnimatedLights.Remove(light as IMyInteriorLight);
-        }
-    }
-    
-    GridTerminalSystem.GetBlocksOfType<IMyReflectorLight>(SpotLights);
-    for(int i = SpotLights.Count -1; i>= 0; i--) {
-        light = SpotLights[i];
-        if(light.CubeGrid != Me.CubeGrid) {
-            SpotLights.Remove(light as IMyReflectorLight);
-        }
-    }
-
-    String connectorLightName = GetConfig("ConnectorLight").Value;
-    GridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(ConnectorLights);
-    for(int i = ConnectorLights.Count -1; i>= 0; i--) {
-        light = ConnectorLights[i];
-        if(light.CubeGrid != Me.CubeGrid || light.CustomName != connectorLightName) {
-            ConnectorLights.Remove(light);
         }
     }
 }
