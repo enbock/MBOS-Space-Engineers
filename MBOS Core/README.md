@@ -7,15 +7,6 @@ The core module which handles the execution rythm and stores the configuration.
  * Setup Programmable Block with `run` action and **empty** argument.
 * Display Block (optional since v2.0)
 
-## The first run
-On the first run, set the `argument` with follow syntax
-
-    <Name of Display>[, <Name of timer block>]
-    
- Example:
- 
-    MBOS: Debug, MBOS: Timer
-
 ## Configuration
 All existent configuration will are modifyable on the custom data.
 
@@ -91,12 +82,11 @@ Request a register of a module with `BlockId` on the Core.
 
 ### Registration feedback
 
-    API://Registered/<BlockId>/<LCDId>
+    API://Registered/<BlockId>
      
 Direction: Core to Module 
 
-Response of register request. `BlockId` is the Core identifier. The
-last value `LCDId` is the config LCD identifier. 
+Response of register request. `BlockId` is the Core identifier.
 
 ### Remove a module
 

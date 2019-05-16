@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.3.0";
+﻿const String VERSION = "2.3.1";
 const String DATA_FORMAT = "1.1";
 
 public class ConfigValue
@@ -62,15 +62,9 @@ public class Call {
         return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
     }
 }
- 
-/**
-* Program logic.
-*/
+
 public void Main(string argument)
-{
-    //Echo(argument);
-    
-    // clear buffer
+{   
     Blocks.Clear();
     LastCalled.Clear();
     
@@ -83,8 +77,6 @@ public void Main(string argument)
         foreach(Module module in Modules) {
             AddCall(GetId(Me), "API://RemoveModule/"+module.ToString());
         }
-    }  else if (argument == "clean") {
-        GetConfig("CallStack").Value = String.Empty;
     } else {
         ReadArgument(argument);
     } 
@@ -96,13 +88,8 @@ public void Main(string argument)
     OutputDebug();
     
     InvokeModules();
-    
-    StartTimer();
 } 
- 
-/**
-* Load storage into config memory.
-*/
+
 public Program()
 { 
     ComputerDisplay = Me.GetSurface(0);
@@ -112,21 +99,17 @@ public Program()
 
     Config.Clear(); 
     LoadFromCustomData();
+    GetConfig("MODULE").Value = "Core";
+    Save();
     StartTimer(); 
 
     Echo("Program started. Type `help` for commands.");
 } 
  
-/**
-* Store config memory.
-*/
 public void Save() { 
     Me.CustomData = FormatConfig(Config); 
 } 
 
-/**
-* Convert config to storable string.
-*/
 public String FormatConfig(List<ConfigValue> config) 
 { 
     List<String> store = new List<String>();  
@@ -157,7 +140,6 @@ public void ReadArgument(String args)
         return;
     }
      
-    // Standard run of Core with arguments.
     IMyTerminalBlock block;
     List<String> parts = new List<String>(args.Split(' ')); 
     String command = parts[0].Trim();
@@ -169,6 +151,11 @@ public void ReadArgument(String args)
             GetConfig("Display").Value = block != null ? GetId(block) : "";
             Echo("Display setting changed.");
             break;
+        case "Clean":
+            GetConfig("CallStack").Value = String.Empty;
+            StoreToCustomData();
+            Echo("Call stack cleared.");
+            break;
         default:
             OutputHelp();
             break;
@@ -176,7 +163,7 @@ public void ReadArgument(String args)
 }
 
 public void OutputHelp() {
-    Echo("Available Commands:\n\n* SetDisplay [<display name>]");
+    Echo("Available Commands:\n\n * SetDisplay [<display name>]\n * Clean\n");
 }
 
 public void CountRun() 
@@ -231,10 +218,12 @@ public void OutputDebug()
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
         + " [" + GetConfig("RunCount").Value + "]" 
         + "\n\n"
+        + "[Core v" + VERSION + "] \n"
     ;
+
+    output += "Calls in stack: " + BuildCallStackFromConfig().Count + "\n";
     
-    output += "[Core v" + VERSION + "] " 
-        + "Registered Modules:\n";
+    output += "Registered Modules:\n";
     foreach(Module mod in Modules) {
         output += "    " + mod.GetName() + "\n";
     }
@@ -247,20 +236,6 @@ public void OutputDebug()
         lcd.WriteText(output, false);
     }
     ComputerDisplay.WriteText(output, false);
-}
-
-public void OutputToConsole()
-{
-    string lcd = GetConfig("Display").Value; 
-
-    Echo(
-        "MODULE=Core\n"
-        + "VERSION=" + VERSION + "\n"
-        + "ID=" + GetMyId() + "\n"
-        + "Count=" + GetConfig("RunCount").Value + "\n"
-        + (lcd != String.Empty ? "Display=" + lcd + "\n" : "")
-        + "RegisteredModules=" + Modules.Count + "\n"
-    );
 }
 
 public void LoadFromCustomData()
@@ -357,7 +332,7 @@ public Module RemoveModule(String blockId)
     return null;
 }
 
-public List<Call> BuildCallStaskFromConfig() {
+public List<Call> BuildCallStackFromConfig() {
     List<Call> CallStack = new List<Call>();
     
     String configValue = GetConfig("CallStack").Value;
@@ -375,7 +350,7 @@ public List<Call> BuildCallStaskFromConfig() {
 
 public void InvokeCalls()
 {
-    List<Call> CallStack = BuildCallStaskFromConfig();
+    List<Call> CallStack = BuildCallStackFromConfig();
 
     if (CallStack.Count == 0) return;
 
@@ -387,6 +362,7 @@ public void InvokeCalls()
         //Echo("Run Me with '" + call.Argument + "'");
         // I can't call my self ;) ... so call the core direct.
         ReadArgument(call.Argument);
+        CallStack.Remove(call);
     } else {
         //Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
         if (call.Block.TryRun(call.Argument)) {
@@ -398,16 +374,16 @@ public void InvokeCalls()
         LoadFromCustomData();
     }
     // Append calls created by Me or other blocks
-    List<Call> newCalls = BuildCallStaskFromConfig();
+    List<Call> newCalls = BuildCallStackFromConfig();
     foreach(Call nCall in newCalls) CallStack.Add(nCall);
 
     // Update config
     List<String> callList = new List<String>();
-    foreach(Call call4String in CallStack) {
-        callList.Add(call4String.GetId()+"~"+call4String.Argument);
+    foreach(Call callString in CallStack) {
+        callList.Add(callString.GetId() + "~" + callString.Argument);
     }
     GetConfig("CallStack").Value = String.Join("#", callList);
-    Echo("CallStack=" + callList.Count);
+    //Echo("CallStack=" + callList.Count);
 }
 
 public void InvokeModules()
