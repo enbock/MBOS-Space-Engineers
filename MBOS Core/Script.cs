@@ -92,7 +92,6 @@ public void Main(string argument)
     
     CountRun(); 
     
-    OutputToConsole();
     StoreToCustomData();
     OutputDebug();
     
@@ -110,12 +109,12 @@ public Program()
     ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
     ComputerDisplay.ClearImagesFromSelection();
     ComputerDisplay.ChangeInterval = 0;
-    ComputerDisplay.WriteText("Initialized.", false);
 
     Config.Clear(); 
     LoadFromCustomData();
     StartTimer(); 
-    OutputToConsole();
+
+    Echo("Program started. Type `help` for commands.");
 } 
  
 /**
@@ -160,11 +159,24 @@ public void ReadArgument(String args)
      
     // Standard run of Core with arguments.
     IMyTerminalBlock block;
-    String[] parts = args.Split(','); 
-    if (parts.Length >= 1 && parts[0].Length > 0) {
-        block = GetBlockByName(parts[0].Trim());
-        if(block != null) GetConfig("Display").Value = GetId(block);
+    List<String> parts = new List<String>(args.Split(' ')); 
+    String command = parts[0].Trim();
+    parts.RemoveAt(0);
+    Echo("Execute " + command);
+    switch (command) {
+        case "SetDisplay":
+            block = GetBlockByName(String.Join(" ", parts.ToArray()));
+            GetConfig("Display").Value = block != null ? GetId(block) : "";
+            Echo("Display setting changed.");
+            break;
+        default:
+            OutputHelp();
+            break;
     }
+}
+
+public void OutputHelp() {
+    Echo("Available Commands:\n\n* SetDisplay [<display name>]");
 }
 
 public void CountRun() 
