@@ -1,9 +1,6 @@
-﻿const String VERSION = "2.2.0";
-const String DATA_FORMAT = "1.0";
+﻿const String VERSION = "2.3.0";
+const String DATA_FORMAT = "1.1";
 
-/**
-* Key value memory.
-*/
 public class ConfigValue
 { 
     public String Key; 
@@ -27,9 +24,6 @@ public class ConfigValue
     } 
 }
 
-/**
-* A Module.
-*/
 public class Module {
     public IMyProgrammableBlock Block;
     
@@ -47,17 +41,12 @@ public class Module {
         return Block.CustomName;
     } 
 }
-// Registered modules.
+
 List<Module> Modules = new List<Module>();
-
-// The central configuration.
-List<ConfigValue> Config = new List<ConfigValue>(); 
-
-// Block Buffer
+List<ConfigValue> Config = new List<ConfigValue>();
 List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
-
-// Last round called blocks.
 List<IMyProgrammableBlock> LastCalled = new List<IMyProgrammableBlock>();
+IMyTextSurface ComputerDisplay;
 
 public class Call {
     public IMyProgrammableBlock Block;
@@ -86,7 +75,6 @@ public void Main(string argument)
     LastCalled.Clear();
     
     LoadFromCustomData();
-    StopTimer();
     if(Modules.Count == 0) LoadModules();
     
     InvokeCalls();
@@ -118,6 +106,12 @@ public void Main(string argument)
 */
 public Program()
 { 
+    ComputerDisplay = Me.GetSurface(0);
+    ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
+    ComputerDisplay.ClearImagesFromSelection();
+    ComputerDisplay.ChangeInterval = 0;
+    ComputerDisplay.WriteText("Initialized.", false);
+
     Config.Clear(); 
     LoadFromCustomData();
     StartTimer(); 
@@ -145,10 +139,7 @@ public String FormatConfig(List<ConfigValue> config)
      
     return "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
 }
- 
-/**
-* Search/Create a config memory block.
-*/
+
 public ConfigValue GetConfig(String key) {
     ConfigValue config = Config.Find(x => x.Key == key);
     if(config != null) return config;
@@ -157,10 +148,7 @@ public ConfigValue GetConfig(String key) {
     Config.Add(newValue); 
     return newValue; 
 } 
- 
-/**
-* Read the given arguments.
-*/
+
 public void ReadArgument(String args) 
 {
     if (args == String.Empty) return;
@@ -176,16 +164,9 @@ public void ReadArgument(String args)
     if (parts.Length >= 1 && parts[0].Length > 0) {
         block = GetBlockByName(parts[0].Trim());
         if(block != null) GetConfig("Display").Value = GetId(block);
-    } 
-    if (parts.Length >= 2 && parts[1].Length > 0) {
-        block = GetBlockByName(parts[1].Trim());
-        if(block != null) GetConfig("MainTimer").Value = GetId(block);
-    } 
+    }
 }
 
-/**
-* Increase the run counter.
-*/
 public void CountRun() 
 { 
     int runcount = 0; 
@@ -198,56 +179,27 @@ public void CountRun()
     count.Value = runcount.ToString(); 
 }
 
-/**
-* Start the core time.
-*
-* The timer will invoke the next loop.
-*/
 public void StartTimer()
 {
-    if(GetConfig("MainTimer").Value == String.Empty) return;
-     
     ConfigValue runMode = GetConfig("RunMode");
     if (runMode.Value == String.Empty) runMode.Value = "normal";
-    IMyTimerBlock timer = GetBlock(GetConfig("MainTimer").Value) as IMyTimerBlock; 
-    if(timer != null) {
-        String value = "Start";
-        switch(runMode.Value) {
-            case "fast":
-                value = "TriggerNow";
-                break;
-            case "call":
-                value = GetConfig("CallStack").Value == String.Empty ? "Stop" : "Start";
-                break;
-            case "callFast":
-                value = GetConfig("CallStack").Value == String.Empty ? "Stop" : "TriggerNow";
-                break;
-            default:
-                value = "Start";
-                break;
-        }
-        timer.ApplyAction(value);
-    } 
+    
+    switch(runMode.Value) {
+        case "fast":
+            Runtime.UpdateFrequency = UpdateFrequency.Update1;
+            break;
+        case "call":
+            Runtime.UpdateFrequency = UpdateFrequency.Update10;
+            break;
+        case "callFast":
+            Runtime.UpdateFrequency = UpdateFrequency.Update1;
+            break;
+        default:
+            Runtime.UpdateFrequency = UpdateFrequency.Update10;
+            break;
+    }
 } 
 
-/**
-* Start the core time.
-*
-* The timer will invoke the next loop.
-*/
-public void StopTimer()
-{
-    if(GetConfig("MainTimer").Value == String.Empty) return; 
-
-    IMyTimerBlock timer = GetBlock(GetConfig("MainTimer").Value) as IMyTimerBlock; 
-    if(timer != null) {
-        timer.ApplyAction("Stop");
-    } 
-} 
-
-/**
-* Stores the config memory on the config lcd.
-*/
 public void StoreToCustomData()
 {
     List<ConfigValue> configs = new List<ConfigValue>();
@@ -259,15 +211,9 @@ public void StoreToCustomData()
     Me.CustomData = FormatConfig(configs);
 }
 
-/**
-* Begin debug output in config screen.
-*/
 public void OutputDebug()
 {
     IMyTextPanel lcd = GetBlock(GetConfig("Display").Value) as IMyTextPanel; 
-    if(lcd == null) {
-        return;
-    }
     
     string output = "[MBOS]"
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
@@ -282,14 +228,15 @@ public void OutputDebug()
     }
     output += "\n";
     
-    lcd.WritePublicText(output, false);
-    lcd.ShowTextureOnScreen();
-    lcd.ShowPublicTextOnScreen();
+    if(lcd != null) {
+        lcd.ContentType = ContentType.TEXT_AND_IMAGE;
+        lcd.ClearImagesFromSelection();
+        lcd.ChangeInterval = 0;
+        lcd.WriteText(output, false);
+    }
+    ComputerDisplay.WriteText(output, false);
 }
 
-/**
-* Output data which may read by other modules.
-*/
 public void OutputToConsole()
 {
     string lcd = GetConfig("Display").Value; 
@@ -304,10 +251,6 @@ public void OutputToConsole()
     );
 }
 
- 
-/**
-* Load storage into config memory.
-*/
 public void LoadFromCustomData()
 { 
     string data = Me.CustomData;
@@ -328,9 +271,6 @@ public void LoadFromCustomData()
     } 
 } 
 
-/**
-* Load module list from config.
-*/
 public void LoadModules()
 {
     Modules.Clear();
@@ -350,19 +290,10 @@ public void UpdateModulesConfig()
     GetConfig("RegisteredModules").Value = String.Join("#", modules.ToArray());
 }
 
-/**
-* API handler.
-*
-* Calls:
-*    API://RegisterModule/<BlockId>
-*    API://RemoveModule/<BlockId>
-*    API://GetDisplay/<BlockId>
-*/
 public void ApplyAPICommunication(String apiInput)
 {
     string[] stack = apiInput.Replace("API://", "").Split('/');
     Module receiver = null;
-    string lcd = GetConfig("Display").Value;
     
     switch(stack[0]) {
         case "RegisterModule":
@@ -370,7 +301,7 @@ public void ApplyAPICommunication(String apiInput)
             if (receiver != null) {
                 AddCall(
                     receiver.ToString() 
-                    , "API://Registered/" + GetMyId() + "/" + lcd
+                    , "API://Registered/" + GetMyId()
                 );
             } else {
                 Echo("Error: Block " + stack[1] + " is invalid.");
@@ -385,24 +316,12 @@ public void ApplyAPICommunication(String apiInput)
                 );
             }
             break;
-        case "GetDisplay":
-            IMyTerminalBlock block = GetBlock(stack[1]);
-            if (block is IMyProgrammableBlock && lcd != String.Empty) {
-                AddCall(
-                    GetId(block)
-                    , "API://Display/" + lcd + "/" + GetMyId()
-                );
-            }
-            break;
         default:
             Echo("Unknown request: " + apiInput);
             break;
     }
 }
 
-/**
-* Register another module to trigger.
-*/
 public Module RegisterModule(String blockId)
 {
     IMyTerminalBlock block = GetBlock(blockId);
@@ -414,9 +333,6 @@ public Module RegisterModule(String blockId)
     return module;
 }
 
-/**
-* Remove a module.
-*/
 public Module RemoveModule(String blockId)
 {
     for(int i = 0; i < Modules.Count; i++) {
@@ -429,9 +345,6 @@ public Module RemoveModule(String blockId)
     return null;
 }
 
-/**
-* Rebuild the callstack from config value.
-*/
 public List<Call> BuildCallStaskFromConfig() {
     List<Call> CallStack = new List<Call>();
     
@@ -448,9 +361,6 @@ public List<Call> BuildCallStaskFromConfig() {
     return CallStack;
 }
 
-/**
-* Run calls from stack.
-*/
 public void InvokeCalls()
 {
     List<Call> CallStack = BuildCallStaskFromConfig();
@@ -488,11 +398,6 @@ public void InvokeCalls()
     Echo("CallStack=" + callList.Count);
 }
 
-/**
-* Run registered modules.
-* Info: If an call from stack was already happened of the module, then will
-*       have the time based invoke no effect.
-*/
 public void InvokeModules()
 {
     string count = GetConfig("RunCount").Value;
@@ -503,10 +408,6 @@ public void InvokeModules()
     }  
 }
 
-/**
-* Get specific block.
-* <param name="name">Name of block.</param>
-*/
 public IMyTerminalBlock GetBlockByName(string name)
 {
     // The Block inventory.
@@ -523,10 +424,6 @@ public IMyTerminalBlock GetBlockByName(string name)
     return null;
 }
 
-/**
-* Get specific block.
-* <param name="id">The block identifier.</param>
-*/
 public IMyTerminalBlock GetBlock(string id)
 {
     string[] parts = id.Split('|');
@@ -550,25 +447,16 @@ public IMyTerminalBlock GetBlock(string id)
     return null;
 }
 
-/**
-* Generate my id.
-*/
 public string GetMyId()
 {
     return GetId(Me);
 }
 
-/**
-* Generate id.
-*/
 public string GetId(IMyTerminalBlock block)
 {
     return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
 }
 
-/**
-* Add a call to the call stack.
-*/
 public void AddCall(String blockId, String argument)
 {
     ConfigValue config = GetConfig("CallStack");

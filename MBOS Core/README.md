@@ -127,15 +127,3 @@ Time based invoke of the module.
 
 * `BlockId` is the Core which invokes. 
 * `RunCount` is the loop counter number of Core.
-
-## Get Display Id
-
-    API://GetDisplay/<BlockId>
-    
-`BlockId` requested the id of the Config LCD Panel.
-
-The core answers with:
-
-    API://Display/<DCisplayId>/<BlockId>
-    
-The `DisplayId` is the Display block identifier. The `BlockId` is the core identifier.

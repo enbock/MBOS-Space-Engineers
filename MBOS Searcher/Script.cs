@@ -1,6 +1,9 @@
 /**
 * A Module.
 */
+
+using System;
+
 public class Module {
     public IMyProgrammableBlock Block;
     public String Type;
