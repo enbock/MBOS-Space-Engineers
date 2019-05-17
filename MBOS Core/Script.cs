@@ -142,7 +142,6 @@ public void ReadArgument(String args)
     List<String> parts = new List<String>(args.Split(' ')); 
     String command = parts[0].Trim();
     parts.RemoveAt(0);
-    Echo("Execute " + command);
     switch (command) {
         case "SetDisplay":
             block = GetBlockByName(String.Join(" ", parts.ToArray()));

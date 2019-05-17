@@ -57,9 +57,15 @@ public Program()
     IMyTerminalBlock module; 
     Module core;
 
-    if (Me.CustomData.Length == 0) return;
+    if (Me.CustomData.Length == 0) {
+        Main("");
+        return;
+    }
     String[] store = Me.CustomData.Split('\n');
-    if(store[0] != "FORMAT v" + DATA_FORMAT) return;
+    if(store[0] != "FORMAT v" + DATA_FORMAT) {
+        Main("");
+        return;
+    }
     RegisteredCores.Clear();
     String[] cores = store[2].Split('#');
     foreach(String coreId in cores) {

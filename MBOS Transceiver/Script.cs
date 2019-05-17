@@ -1,5 +1,5 @@
-const String NAME = "Transmitter";
-const String VERSION = "1.2.0";
+const String NAME = "Transceiver";
+const String VERSION = "1.3.0";
 const String DATA_FORMAT = "1.1";
 
 public class Module {
@@ -34,7 +34,7 @@ public class Call {
 
 Module Core = null;
 Module Bus  = null;
-Module Antenna = null;
+//Module Antenna = null;
 IMyBroadcastListener BroadcastListener = null;
 string LastSendData = "";
 string LastRepeatedData = "";
@@ -59,7 +59,7 @@ public void Save()
                 "Bus=" + Bus
             ) : ""
         ) + "\n"
-        + (Antenna != null ? "Antenna=" + Antenna : "") + "\n"
+        //+ (Antenna != null ? "Antenna=" + Antenna : "") + "\n"
         + "Channel=" + Channel + "\n"
         + "\n"
         + String.Join("\n", Traffic.ToArray()) + "\n"
@@ -73,23 +73,30 @@ public Program()
     ComputerDisplay.ClearImagesFromSelection();
     ComputerDisplay.ChangeInterval = 0;
 
-    if (Me.CustomData.Length == 0) return;
+    if (Me.CustomData.Length == 0)  {
+        Main("");
+        return;
+    }
     String[] store = Me.CustomData.Split('\n');
     foreach(String line in store) {
         String[] args = line.Split('=');
         if (line.IndexOf("FORMAT") == 0) {
-            if(line != "FORMAT v" + DATA_FORMAT) return;
+            if(line != "FORMAT v" + DATA_FORMAT)  {
+                Main("");
+                return;
+            }
         }
         if (line.IndexOf("Bus=") == 0) {
             LoadBusFromConfig(line);
         }
-        if (line.IndexOf("Antenna=") == 0) {
+        /*if (line.IndexOf("Antenna=") == 0) {
             SetAntenna(args[1]);
-        }
+        }*/
         if (line.IndexOf("Channel=") == 0) {
             Channel = args[1];
         }
     }
+    SetChannel(Channel);
     Main("");
 }
 
@@ -123,7 +130,6 @@ public void Main(String argument)
     }
     
     Save();
-    ReceiveData();
     ExecuteCalls();
     Save();
 
@@ -144,15 +150,15 @@ public void Main(String argument)
             : "none"
         ) + "\n"
         + "Registered on bus: " + (Bus != null ? Bus.Block.CustomName : "none") + "\n"
-        + "Connected on antenna: " + (Antenna != null ? Antenna.Block.CustomName : "none") + "\n"
+        //+ "Connected on antenna: " + (Antenna != null ? Antenna.Block.CustomName : "none") + "\n"
         + "Traffic (Channel: " + Channel + "):\n"
         + DebugTraffic()
     ;
     ComputerDisplay.WriteText(output);
 
-    if (Antenna == null) {
+    /*if (Antenna == null) {
         Echo("Please, type 'SetAntenna <name of the antenna>' in argument field and press run.");
-    }
+    }*/
 }
 
 public void ReadArgument(String args) 
@@ -167,27 +173,35 @@ public void ReadArgument(String args)
     List<String> parts = new List<String>(args.Split(' ')); 
     String command = parts[0].Trim();
     parts.RemoveAt(0);
-    Echo("Execute " + command);
     switch (command) {
-        case "SetAntenna":
+        /*case "SetAntenna":
             SetAntenna(String.Join(" ", parts.ToArray()));
             Echo("New antenna connected.");
-            break;
+            break;*/
         case "SetChannel":
             SetChannel(parts[0]);
             Echo("Channel changed.");
             break;
+        case "SendMessage":
+            SendMessage(String.Join(" ", parts.ToArray()));
+            Echo("Message sent.");
+            break;
+        case "ReadMessages":
+            ReceiveMessages();
+            break;
         default:
             Echo(
                 "Available commands:\n"
-                + "  * SetAntenna <antenna custom name>\n"
+                //+ "  * SetAntenna <antenna name>\n"
                 + "  * SetChannel <new channel name>\n"
+                + "  * SendMessage <Message text>\n"
+                + "  * ReadMessages\n"
             );
             break;
     }
 }
 
-public void SetAntenna(string name)
+/*public void SetAntenna(string name)
 {
     IMyFunctionalBlock antenna = (GetBlock(name) as IMyFunctionalBlock);
     antenna =  antenna != null ? antenna : (GetBlockByName(name) as IMyFunctionalBlock);
@@ -211,42 +225,40 @@ public void SetAntenna(string name)
     
     Antenna = new Module(antenna);
     SetChannel(Channel);
-}
+}*/
 
 public void SetChannel(string channel) {
     Channel = channel;
     List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
     IGC.GetBroadcastListeners(listeners);
-    foreach(IMyBroadcastListener listener in listeners) {
-        if (listener.Tag == Channel) {
-            BroadcastListener = listener;
-            return;
-        }
-    }
-
     BroadcastListener = IGC.RegisterBroadcastListener(Channel);
+    BroadcastListener.SetMessageCallback("ReadMessages");
 }
 
-public void ReceiveData()
+public void ReceiveMessages()
 {
-    if (BroadcastListener == null ||  BroadcastListener.HasPendingMessage == false) return;
+    if (BroadcastListener == null) return;
 
-    MyIGCMessage message = BroadcastListener.AcceptMessage();
-    string incoming = message.Data.ToString();
+    while(BroadcastListener.HasPendingMessage) {
+        MyIGCMessage message = BroadcastListener.AcceptMessage();
+        string incoming = message.Data.ToString();
 
-    if (incoming == LastSendData || incoming == LastRepeatedData) 
-    {
-        return; // ignore own echoed data
-    }
-    Traffic.Add("< " + incoming);
+        if (incoming == LastSendData || incoming == LastRepeatedData) 
+        {
+            return; // ignore own echoed data
+        }
+            
+        string[] stack = incoming.Split('|');
+        stack = stack.Skip(1).ToArray(); // remove timestamp
+        string messageText =  String.Join("|", stack);
+        Traffic.Add("< " + messageText);
+        AddCall(Bus, "API://Dispatch/RadioData/" + GetId(Me) +  "/" + messageText);
         
-    string[] stack = incoming.Split('|');
-    stack = stack.Skip(1).ToArray(); // remove timestamp
-    AddCall(Bus, "API://Dispatch/RadioData/" + GetId(Me) +  "/" + String.Join("|", stack));
-    
-    // repeat
-    IGC.SendBroadcastMessage(Channel, incoming);
-    LastRepeatedData = incoming;
+        /* // repeat
+        IGC.SendBroadcastMessage(Channel, incoming);
+        LastRepeatedData = incoming;
+        */
+    }
 }
 
 public IMyTerminalBlock GetBlock(string id)
@@ -387,6 +399,7 @@ public void ApplyAPICommunication(String apiInput)
             break;
         case "ScheduleEvent": // core call
             OnTimeEvent(arg);
+            //ReceiveData(String.Join("/", arg));
             break;
         case "Dispatched":
             if (arg[3] == Bus.ToString()) {
@@ -413,7 +426,7 @@ public void OnRemoval()
 {
     Core = null;
     Bus = null;
-    Antenna = null;
+   // Antenna = null;
     Me.CustomData = "";
 }
 
@@ -429,17 +442,21 @@ public void OnEvent(String eventName, String sourceId, String data)
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
         case "SendRadio":
-            String message = Timestamp + "|" + data;
-            if(BroadcastListener != null) {
-                IGC.SendBroadcastMessage(Channel, message);
-            }
-            LastSendData = message;
-            Traffic.Add("> " + message);
+            SendMessage(data);
             break;
         default:
             Echo("Unknown received event: " + eventName);
             break;
     }
+}
+
+public void SendMessage(String data) {
+    String message = Timestamp + "|" + data;
+    if(BroadcastListener != null) {
+        IGC.SendBroadcastMessage(Channel, message, TransmissionDistance.AntennaRelay);
+    }
+    LastSendData = message;
+    Traffic.Add("> " + data);
 }
 
 public String DebugTraffic()
