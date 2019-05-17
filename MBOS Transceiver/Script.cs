@@ -1,5 +1,5 @@
 const String NAME = "Transceiver";
-const String VERSION = "1.3.0";
+const String VERSION = "1.3.1";
 const String DATA_FORMAT = "1.1";
 
 public class Module {
@@ -119,6 +119,7 @@ public void LoadBusFromConfig(String config)
 public void Main(String argument)
 {
     Timestamp = System.DateTime.Now.ToBinary();
+    Runtime.UpdateFrequency = UpdateFrequency.None;
 
     if (argument == "UNINSTALL") {
         Uninstall();
@@ -341,7 +342,7 @@ public void ExecuteCalls()
     }
 
     if(CallStack.Count > 0) {
-        Runtime.UpdateFrequency = UpdateFrequency.Once;
+        Runtime.UpdateFrequency = UpdateFrequency.Update10;
     }
 }
 
@@ -399,7 +400,6 @@ public void ApplyAPICommunication(String apiInput)
             break;
         case "ScheduleEvent": // core call
             OnTimeEvent(arg);
-            //ReceiveData(String.Join("/", arg));
             break;
         case "Dispatched":
             if (arg[3] == Bus.ToString()) {
@@ -432,7 +432,7 @@ public void OnRemoval()
 
 public void OnTimeEvent(String[] arg)
 {
-    if (arg[1] != Core.ToString()) return;
+    if (Core == null || arg[1] != Core.ToString()) return;
 
     Core.Count = Int32.Parse(arg[2]);
 }

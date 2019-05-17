@@ -1,5 +1,5 @@
-﻿const String VERSION = "1.2.1";
-const String DATA_FORMAT = "1.1";
+﻿const String VERSION = "1.3.0";
+const String DATA_FORMAT = "1.2";
 
 public class Module {
     public IMyProgrammableBlock Block;
@@ -29,23 +29,26 @@ public class EventList
 }
 
 public class Call {
+    protected Module Core;
     public IMyProgrammableBlock Block;
     public String Argument;
     
-    public Call(IMyProgrammableBlock block, String argument) {
+    public Call(Module core, IMyProgrammableBlock block, String argument) {
+        Core = core;
         Block = block;
         Argument = argument;
     }
     
     public bool Run()
     {
-        return Block.TryRun(Argument);
+        return Core.Block.TryRun("API://Execute/" + Block.EntityId.ToString() + "/" + Argument);
     }
 }
 
-List<Module> RegisteredCores = new List<Module>();
+Module RegisteredCore;
 List<EventList> RegisteredEvents = new List<EventList>(); 
 IMyTextSurface ComputerDisplay;
+List<Call> CallStack = new List<Call>();
 
 public Program()
 {
@@ -55,7 +58,6 @@ public Program()
     ComputerDisplay.ChangeInterval = 0;
 
     IMyTerminalBlock module; 
-    Module core;
 
     if (Me.CustomData.Length == 0) {
         Main("");
@@ -66,15 +68,12 @@ public Program()
         Main("");
         return;
     }
-    RegisteredCores.Clear();
-    String[] cores = store[2].Split('#');
-    foreach(String coreId in cores) {
+    RegisteredCore = null;
+    String coreId = store[2];
 
-        module = GetBlock(coreId);
-        if(module == null) continue;
-
-        core = new Module((IMyProgrammableBlock) module);
-        RegisteredCores.Add(core);
+    module = GetBlock(coreId);
+    if(module != null) {
+        RegisteredCore = new Module((IMyProgrammableBlock) module);
     }
     
     RegisteredEvents.Clear();
@@ -110,48 +109,42 @@ public void Save()
     
     Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n"
         + "MODULE=Bus\n"
-        +  FormatRegisteredCores() + "\n"
+        +(RegisteredCore != null ? RegisteredCore.ToString() : "") + "\n"
         + list
     ;
-}
- public String FormatRegisteredCores()
-{
-    List<String> modules = new List<String>();
-    foreach(Module core in RegisteredCores) modules.Add(core.ToString());
-    return String.Join("#", modules.ToArray());
 }
 
 String lastArg = "";
 public void Main(string argument)
 {
+    Runtime.UpdateFrequency = UpdateFrequency.None;
     lastArg = argument;
-    
+
     if (argument.IndexOf("API://") == 0) {
         ApplyAPICommunication(argument);
     } else {
         if (argument == "UNINSTALL") {
             Uninstall();
         } else {
-            if (RegisteredCores.Count == 0) {
-                RegisterOnCores();
-            }
             Echo("Available Commands:\n * UNINSTALL\n");
+    
+            if (RegisteredCore == null) {
+                RegisterOnCore();
+            }
         }
     }
 
-    List<String> coreIds = new List<String>();
-    List<int> coreCounts = new List<int>();
-    foreach(Module module in RegisteredCores) {
-        coreIds.Add(module.Block.CustomName);
-        coreCounts.Add(module.CurrentCount);
-    }
+    ExecuteCalls();
+
     string output = "[MBOS]"
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
-        + " [" + (coreCounts.Count > 0 ? String.Join("] [", coreCounts.ToArray()) : "0") + "]" 
+        + " [" + (RegisteredCore != null ? RegisteredCore.CurrentCount.ToString() : "0") + "]" 
         + "\n\n"
         + "[Bus v" + VERSION + "]\n" 
-        + "Registered on cores: \n" 
-        + (coreIds.Count > 0 ? ("    " + String.Join("\n    ", coreIds.ToArray()) + "\n") : "")
+        + "Registered on core: " + (RegisteredCore != null ? (
+                RegisteredCore.Block.CustomName
+                + "\n   Stack:" + CallStack.Count
+            ) : "") + "\n"
         + "Registered Events:\n"
         + DumpEventList()
     ;
@@ -175,26 +168,19 @@ public String DumpEventList()
 public void ApplyAPICommunication(String apiInput)
 {
     string[] arg = apiInput.Replace("API://", "").Split('/');
-    Module core;
     
     switch(arg[0]) {
-        case "Registered": // core validated
+        case "Registered":
             IMyProgrammableBlock block = GetBlock(arg[1]) as IMyProgrammableBlock;
             if(block == null) break;
-            if(RegisteredCores.Exists(x => x.Block == block)) break;
-            core = new Module(block);
-            RegisteredCores.Add(core);
+            RegisteredCore = new Module(block);
             break;
-        case "Removed": // external core removal
-            Uninstall();
+        case "Removed": 
+            Uninstall(true);
             break;
-        case "ScheduleEvent": // core call
-            foreach(Module i in RegisteredCores) {
-                if (i.ToString() == arg[1]) {
-                    i.CurrentCount = Int32.Parse(arg[2]);
-                    break;
-                }
-            }
+        case "ScheduleEvent":
+            if (RegisteredCore == null) break;
+            RegisteredCore.CurrentCount = Int32.Parse(arg[2]);
             break;
         case "AddListener":
             AddListener(arg[1], arg[2]);
@@ -258,26 +244,30 @@ public string GetId(IMyTerminalBlock block)
     return block.EntityId.ToString();
 }
 
-public void RegisterOnCores()
+public void RegisterOnCore()
 {
     List<Module> cores = FindCores();
     foreach(Module core in cores) {
-        bool success = core.Block.TryRun("API://RegisterModule/" + GetId(Me));
-        Echo("Register on " + core.Block.CustomName + ": " + (success ? "successful" : "failed"));
+        if (core.Block.TryRun("API://RegisterModule/" + GetId(Me))) {
+            Echo("Register on " + core.Block.CustomName + ": successful");
+            return;
+        }
     }  
+    Echo("Register on any core: failed");
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
 }
 
-public void Uninstall()
+public void Uninstall(bool withoutCoreRemoval = false)
 {
     foreach(EventList list in RegisteredEvents) {
         foreach(Module observer in list.Observers) 
-            AddCall(observer.ToString(), "API://ListenerRemoved/" + list.Key + "/" + GetId(Me));
+            AddCall(observer.Block, "API://ListenerRemoved/" + list.Key + "/" + GetId(Me));
     }
     RegisteredEvents.Clear();
-    foreach(Module core in RegisteredCores) {
-        core.Block.TryRun("API://RemoveModule/" + GetId(Me));
+    if (RegisteredCore != null && withoutCoreRemoval == false) {
+        AddCall(RegisteredCore.Block, "API://RemoveModule/" + GetId(Me));
     }
-    RegisteredCores.Clear(); // Don't wait for answer
+    RegisteredCore = null;
 
     Echo("Deinstalled.");
 }
@@ -296,7 +286,7 @@ public void AddListener(string eventName, string listener)
     if(!list.Observers.Exists(x => x.Block == observer)) {
         list.Observers.Add(new Module(observer));
     }
-    AddCall(GetId(observer), "API://ListenerAdded/" + eventName + "/" + GetId(Me));
+    AddCall(observer, "API://ListenerAdded/" + eventName + "/" + GetId(Me));
 }
 
 public void RemoveListener(string eventName, string listener)
@@ -306,7 +296,7 @@ public void RemoveListener(string eventName, string listener)
 
     EventList list = RegisteredEvents.Find(x => x.Key == eventName);
     if(list == null) {
-        AddCall(GetId(observer), "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
+        AddCall(observer, "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
         return;
     };
 
@@ -314,7 +304,7 @@ public void RemoveListener(string eventName, string listener)
     if(registeredObserver != null) {
         list.Observers.Remove(registeredObserver);
     }
-    AddCall(GetId(observer), "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
+    AddCall(observer, "API://ListenerRemoved/" + eventName + "/" + GetId(Me));
 }
 
 public void DispatchEvent(string eventName, string sender, string data)
@@ -323,45 +313,26 @@ public void DispatchEvent(string eventName, string sender, string data)
     if(list == null) return;
     foreach(Module module in list.Observers) {
         Echo(eventName + " -> " + sender);
-        AddCall(module.ToString(), "API://Dispatched/" + eventName + "/" + sender + "/" + GetId(Me) + "/" + data);
+        AddCall(module.Block, "API://Dispatched/" + eventName + "/" + sender + "/" + GetId(Me) + "/" + data);
     }
 }
 
-public void AddCall(String blockId, String argument) {
-    foreach(Module core in RegisteredCores) {
-        String configText = core.Block.CustomData;
+public void AddCall(IMyProgrammableBlock block, String argument) {
+    CallStack.Add(new Call(RegisteredCore, block, argument));
+}
 
-        if (configText.Length > 0) { 
-            String data = "";
-            String[] configs = configText.Split('\n');
+public void ExecuteCalls()
+{
+    List<Call> stack = CallStack;
+    CallStack = new List<Call>();
 
-            foreach(String line in configs) {
-                if (line.Length > 0) {
-                    string[] parts = line.Split('=');
-                    if (parts[0] == "CallStack") {
-                        String stack = String.Empty;
-                        // read config of stack
-                        if(parts.Length == 2) stack = parts[1];
-
-                        // Add to stack
-                        if(stack == String.Empty) {
-                            stack = blockId + "~" + argument;
-                        } else {
-                            stack += "#" + blockId + "~" + argument;
-                        }
-
-                        // Write stack to config
-                        data += "CallStack=" + stack + "\n";
-                    } else {
-                        data += line + "\n";
-                    }
-                }
-            } 
-
-            core.Block.CustomData = data;
-            core.Block.TryRun("");
-        } else {
-            Echo("Missing config in Custom Data of core:" + core.ToString());
+    foreach(Call call in stack) {
+        if (call.Run() == false) {
+            CallStack.Add(call);
         }
+    }
+
+    if(CallStack.Count > 0) {
+        Runtime.UpdateFrequency = UpdateFrequency.Update10;
     }
 }

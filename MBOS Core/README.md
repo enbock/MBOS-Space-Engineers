@@ -14,10 +14,10 @@ One the configuration is set, the core store it on the process storage and is
 imedialy available on cores first run after loading the level(no booting time
 needed).
 
-### Data format v0.3
+### Data format
 Generic format syntax:
 
-    FORMAT v0.3
+    FORMAT v<version>
     <key>=<value>
     
 Lists inside of config:
@@ -41,10 +41,11 @@ since: v0.2.0
 #### RunMode 
 since: v0.2.0 
 
-Value Syntax: `{fast|normal|call|callFast}` 
+Value Syntax: `{fast|normal|call}` 
 
-Switch between fast and normal operation mode.    
-(since v2.0.0) The call modes are stopping the timer if no call in stack.
+Switch between `fast` and `normal` continously operation mode.    
+(since v2.0.0) The `call` mode are stopping if no call in stack.
+(since v2.5.0) The `call`mode is default.
 
 #### RegisteredModules 
 since: v0.3.0 

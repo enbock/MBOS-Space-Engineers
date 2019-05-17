@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.4.0";
+﻿const String VERSION = "2.5.1";
 const String DATA_FORMAT = "1.1";
 
 public class ConfigValue
@@ -178,14 +178,14 @@ public void CountRun()
 public void StartTimer()
 {
     ConfigValue runMode = GetConfig("RunMode");
-    if (runMode.Value == String.Empty) runMode.Value = "normal";
+    if (runMode.Value == String.Empty) runMode.Value = "call";
     
     switch(runMode.Value) {
         case "fast":
             Runtime.UpdateFrequency = UpdateFrequency.Update1;
             break;
         case "call":
-            Runtime.UpdateFrequency = UpdateFrequency.None;
+            Runtime.UpdateFrequency = BuildCallStackFromConfig().Count > 0 || LastCalled.Count > 0 ? UpdateFrequency.Update10 : UpdateFrequency.None;
             break;
         default:
             Runtime.UpdateFrequency = UpdateFrequency.Update10;
@@ -300,7 +300,6 @@ public void ApplyAPICommunication(String apiInput)
             }
             break;
         case "GetModules":
-        Echo("CM:"+GetConfig("RegisteredModules").Value.Replace('#', ','));
             AddCall(
                 stack[0]
                 , "API://CoreModules/" + GetMyId() + "/" + GetConfig("RegisteredModules").Value.Replace('#', ',')
@@ -373,7 +372,7 @@ public void InvokeCalls()
         ReadArgument(call.Argument);
         CallStack.Remove(call);
     } else {
-        //Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
+        Echo("Run " + call.GetId() + " with '" + call.Argument + "'");
         if (call.Block.TryRun(call.Argument)) {
             LastCalled.Add(call.Block);
             CallStack.Remove(call);
