@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.2.0";
+﻿const String VERSION = "1.2.1";
 const String DATA_FORMAT = "1.1";
 
 public class Module {
@@ -12,7 +12,7 @@ public class Module {
     
     public override String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+        return Block.EntityId.ToString();
     } 
 }
 
@@ -41,16 +41,10 @@ public class Call {
     {
         return Block.TryRun(Argument);
     }
-    
-    public String GetBlockId() 
-    { 
-        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
-    } 
 }
 
 List<Module> RegisteredCores = new List<Module>();
 List<EventList> RegisteredEvents = new List<EventList>(); 
-List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 IMyTextSurface ComputerDisplay;
 
 public Program()
@@ -109,7 +103,7 @@ public void Save()
     }
     
     Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n"
-        + "MODULE=Bus"
+        + "MODULE=Bus\n"
         +  FormatRegisteredCores() + "\n"
         + list
     ;
@@ -126,20 +120,17 @@ public void Main(string argument)
 {
     lastArg = argument;
     
-    Blocks.Clear();
-    
     if (argument.IndexOf("API://") == 0) {
         ApplyAPICommunication(argument);
     } else {
         if (argument == "UNINSTALL") {
             Uninstall();
         } else {
+            if (RegisteredCores.Count == 0) {
+                RegisterOnCores();
+            }
             Echo("Available Commands:\n * UNINSTALL\n");
         }
-    }
-    
-    if (argument != "UNINSTALL"  && RegisteredCores.Count == 0) {
-        RegisterOnCores();
     }
 
     List<String> coreIds = new List<String>();
@@ -152,7 +143,7 @@ public void Main(string argument)
         + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
         + " [" + (coreCounts.Count > 0 ? String.Join("] [", coreCounts.ToArray()) : "0") + "]" 
         + "\n\n"
-        + "[Bus v" + VERSION + "] " 
+        + "[Bus v" + VERSION + "]\n" 
         + "Registered on cores: \n" 
         + (coreIds.Count > 0 ? ("    " + String.Join("\n    ", coreIds.ToArray()) + "\n") : "")
         + "Registered Events:\n"
@@ -218,29 +209,6 @@ public void ApplyAPICommunication(String apiInput)
     Save();
 }
 
-public IMyTerminalBlock GetBlock(string id)
-{
-    string[] parts = id.Split('|');
-    if (parts.Length != 2) return null;
-    string subTypeId = parts[1].Trim();
-    int gridNumber = Int32.Parse(parts[0].Trim());
-    
-    List<IMyTerminalBlock> blocks = Blocks;
-    if (blocks.Count == 0) GridTerminalSystem.GetBlocks(blocks);
-    
-    for(int i = 0; i < blocks.Count; i++) {
-        if (
-            blocks[i].NumberInGrid == gridNumber 
-            && blocks[i].BlockDefinition.SubtypeId == subTypeId
-            && blocks[i].CubeGrid  == Me.CubeGrid
-        ) {
-            return blocks[i];
-        }
-    }
-    
-    return null;
-}
-
 public List<Module> FindCores() {
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
     List<Module> result = new List<Module>();
@@ -259,16 +227,37 @@ public List<Module> FindCores() {
     return result;
 }
 
+public IMyTerminalBlock GetBlock(string id)
+{   
+    long cubeId = 0L;
+    try
+    {
+        cubeId = Int64.Parse(id);
+    }
+    catch (FormatException)
+    {
+        return null;
+    }
+    IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
+    
+    if(block != null && block.CubeGrid == Me.CubeGrid) {
+        return block;
+    }
+    
+    return null;
+}
+
 public string GetId(IMyTerminalBlock block)
 {
-    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
+    return block.EntityId.ToString();
 }
 
 public void RegisterOnCores()
 {
     List<Module> cores = FindCores();
     foreach(Module core in cores) {
-        core.Block.TryRun("API://RegisterModule/" + GetId(Me));
+        bool success = core.Block.TryRun("API://RegisterModule/" + GetId(Me));
+        Echo("Register on " + core.Block.CustomName + ": " + (success ? "successful" : "failed"));
     }  
 }
 
@@ -283,6 +272,8 @@ public void Uninstall()
         core.Block.TryRun("API://RemoveModule/" + GetId(Me));
     }
     RegisteredCores.Clear(); // Don't wait for answer
+
+    Echo("Deinstalled.");
 }
 
 public void AddListener(string eventName, string listener)

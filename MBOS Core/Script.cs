@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.3.1";
+﻿const String VERSION = "2.4.0";
 const String DATA_FORMAT = "1.1";
 
 public class ConfigValue
@@ -33,7 +33,7 @@ public class Module {
 
     public override String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+        return Block.EntityId.ToString();
     }
 
     public String GetName() 
@@ -44,7 +44,6 @@ public class Module {
 
 List<Module> Modules = new List<Module>();
 List<ConfigValue> Config = new List<ConfigValue>();
-List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
 List<IMyProgrammableBlock> LastCalled = new List<IMyProgrammableBlock>();
 IMyTextSurface ComputerDisplay;
 
@@ -59,13 +58,12 @@ public class Call {
 
     public String GetId() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+        return Block.EntityId.ToString();
     }
 }
 
 public void Main(string argument)
-{   
-    Blocks.Clear();
+{
     LastCalled.Clear();
     
     LoadFromCustomData();
@@ -81,13 +79,13 @@ public void Main(string argument)
         ReadArgument(argument);
     } 
     UpdateModulesConfig();
-    
     CountRun(); 
-    
     StoreToCustomData();
-    OutputDebug();
-    
     InvokeModules();
+    Save();
+    OutputDebug();
+
+    StartTimer(); 
 } 
 
 public Program()
@@ -188,10 +186,7 @@ public void StartTimer()
             Runtime.UpdateFrequency = UpdateFrequency.Update1;
             break;
         case "call":
-            Runtime.UpdateFrequency = UpdateFrequency.Update10;
-            break;
-        case "callFast":
-            Runtime.UpdateFrequency = UpdateFrequency.Update1;
+            Runtime.UpdateFrequency = UpdateFrequency.None;
             break;
         default:
             Runtime.UpdateFrequency = UpdateFrequency.Update10;
@@ -279,29 +274,44 @@ public void UpdateModulesConfig()
 
 public void ApplyAPICommunication(String apiInput)
 {
-    string[] stack = apiInput.Replace("API://", "").Split('/');
+    List<String> stack = new List<String>(apiInput.Replace("API://", "").Split('/'));
     Module receiver = null;
+    String command = stack[0];
+    stack.RemoveAt(0);
     
-    switch(stack[0]) {
+    switch(command) {
         case "RegisterModule":
-            receiver = RegisterModule(stack[1]);
+            receiver = RegisterModule(stack[0]);
             if (receiver != null) {
                 AddCall(
                     receiver.ToString() 
                     , "API://Registered/" + GetMyId()
                 );
             } else {
-                Echo("Error: Block " + stack[1] + " is invalid.");
+                Echo("Error: Block " + stack[0] + " is invalid.");
             }
             break;
         case "RemoveModule":
-            receiver = RemoveModule(stack[1]);
+            receiver = RemoveModule(stack[0]);
             if (receiver != null) {
                 AddCall(
                     receiver.ToString()
                     , "API://Removed/" + GetMyId()
                 );
             }
+            break;
+        case "GetModules":
+        Echo("CM:"+GetConfig("RegisteredModules").Value.Replace('#', ','));
+            AddCall(
+                stack[0]
+                , "API://CoreModules/" + GetMyId() + "/" + GetConfig("RegisteredModules").Value.Replace('#', ',')
+            );
+            break;
+        case "Execute":
+            String target = stack[0];
+            stack.RemoveAt(0);
+            String argument = String.Join("/", stack.ToArray());
+            AddCall(target, "API://" + argument);
             break;
         default:
             Echo("Unknown request: " + apiInput);
@@ -413,23 +423,20 @@ public IMyTerminalBlock GetBlockByName(string name)
 }
 
 public IMyTerminalBlock GetBlock(string id)
-{
-    string[] parts = id.Split('|');
-    if (parts.Length != 2) return null;
-    string subTypeId = parts[1].Trim();
-    int gridNumber = Int32.Parse(parts[0].Trim());
+{   
+    long cubeId = 0L;
+    try
+    {
+        cubeId = Int64.Parse(id);
+    }
+    catch (FormatException)
+    {
+        return null;
+    }
+    IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
     
-    List<IMyTerminalBlock> blocks = Blocks;
-    if (blocks.Count == 0) GridTerminalSystem.GetBlocks(blocks);
-    
-    for(int i = 0; i < blocks.Count; i++) {
-        if (
-            blocks[i].NumberInGrid == gridNumber 
-            && blocks[i].BlockDefinition.SubtypeId == subTypeId
-            && blocks[i].CubeGrid  == Me.CubeGrid
-        ) {
-            return blocks[i];
-        }
+    if(block != null && block.CubeGrid == Me.CubeGrid) {
+        return block;
     }
     
     return null;
@@ -442,7 +449,7 @@ public string GetMyId()
 
 public string GetId(IMyTerminalBlock block)
 {
-    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
+    return block.EntityId.ToString();
 }
 
 public void AddCall(String blockId, String argument)

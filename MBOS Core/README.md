@@ -66,9 +66,9 @@ The whole MBOS system used API URN in follow syntax:
     
 Syntax of `BlockId`:
 
-    <Number in Grid>|<Type of Block>
+    <Block Entity Identifier>
     
-The block identifier is independend from the `CustomName`. So the block
+The block identifier is independent from the `CustomName`. So the block
 can be renamed without loosing the connection to the modules.
 
 ## Module Registration System
@@ -104,6 +104,22 @@ Non existant module will be ignored.
 Direction: Core to Module 
 
 Response after module was removed from Core with `BlockId`. 
+
+### Get registered modules
+since: 2.4.0
+
+    API://GetModules/<RequesterId>
+     
+Direction: Module to Core
+
+#### Response
+
+    API://CoreModules/<CoreId>/[<ModuleId>[,<ModuleId> ...]]
+
+### Execute on core
+since: 2.4.0
+
+    API://Execute/<TargetId>/<Argument>
 
 ## Time triggered execution
 Once a module were registered, it will be executed by the core with follow

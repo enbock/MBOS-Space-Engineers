@@ -53,7 +53,6 @@ register itself on each found core module.
 ## Installation
 * Build a Programmable Block.
 * Load this script into.
-* Run the block once manually without any argument.
 
 It is not needed, to add this module to any Timer Block.
 

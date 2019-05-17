@@ -1,75 +1,78 @@
-// Module Name
 const String NAME = "Transmitter";
-// Module version
-const String VERSION = "1.1.1";
-// The data format version.
-const String DATA_FORMAT = "1.0";
+const String VERSION = "1.2.0";
+const String DATA_FORMAT = "1.1";
 
-/**
-* A Module.
-*/
 public class Module {
     public IMyTerminalBlock Block;
-    // Only for type core.
-    public IMyTextPanel Display;
-    // Only for type busses.
-    public Module Core;
+    public IMyTextSurface Display;
+    public int Count = 0;
     
-    /**
-    * Construct object and store block reference.
-    */
     public Module(IMyTerminalBlock block) {
         Block = block;
     }
 
-    /**
-    * Return the string id.
-    */
     public override String ToString() 
     { 
-        return Block.NumberInGrid.ToString() + "|" + Block.BlockDefinition.SubtypeId;
+        return Block.EntityId.ToString();
     } 
 }
 
-// Registered bus.
-Module Bus  = null;
-// Block cache.
-List<IMyTerminalBlock> Blocks = new List<IMyTerminalBlock>();
+public class Call {
+    public Module Bus;
+    public String Argument;
+    
+    public Call(Module bus, String argument) {
+        Bus = bus;
+        Argument = argument;
+    }
 
+    public String GetId() 
+    { 
+        return Bus.ToString();
+    }
+}
+
+Module Core = null;
+Module Bus  = null;
 Module Antenna = null;
+IMyBroadcastListener BroadcastListener = null;
 string LastSendData = "";
 string LastRepeatedData = "";
 long Timestamp;
-IMyTextPanel DebugScreen = null;
-String LastAction = "Init";
+string Channel = "default";
+IMyTextSurface ComputerDisplay;
 
 List<String> Traffic = new List<String>();
+List<Call> CallStack = new List<Call>();
 
-/**
-* Store data.
-*/
 public void Save()
 {   
     Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n"
+        + "MODULE=Transmitter\n"
+        + (
+            Core != null ? (
+                "Core=" + Core
+            ) : ""
+        ) + "\n"
         + (
             Bus != null ? (
-                "Bus=" + Bus + "*" + (
-                    Bus.Core + "*" + (
-                        Bus.Core.Display != null ? GetId(Bus.Core.Display) : ""
-                    )
-                ) 
+                "Bus=" + Bus
             ) : ""
         ) + "\n"
         + (Antenna != null ? "Antenna=" + Antenna : "") + "\n"
-        + (DebugScreen != null ? "Screen=" + GetId(DebugScreen) : "") + "\n"
+        + "Channel=" + Channel + "\n"
+        + "\n"
+        + String.Join("\n", Traffic.ToArray()) + "\n"
     ;
 }
 
-/**
-* Storage loader.
-*/
 public Program()
 {
+    ComputerDisplay = Me.GetSurface(0);
+    ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
+    ComputerDisplay.ClearImagesFromSelection();
+    ComputerDisplay.ChangeInterval = 0;
+
     if (Me.CustomData.Length == 0) return;
     String[] store = Me.CustomData.Split('\n');
     foreach(String line in store) {
@@ -81,19 +84,15 @@ public Program()
             LoadBusFromConfig(line);
         }
         if (line.IndexOf("Antenna=") == 0) {
-            GetAntenna(args[1]);
+            SetAntenna(args[1]);
         }
-        if (line.IndexOf("Screen=") == 0) {
-            DebugScreen = GetBlock(args[1]) as IMyTextPanel;
+        if (line.IndexOf("Channel=") == 0) {
+            Channel = args[1];
         }
     }
-    DetailedInfo();
     Main("");
 }
 
-/**
-* Load registered bus and core from config.
-*/
 public void LoadBusFromConfig(String config)
 {
     Bus = null;
@@ -105,130 +104,176 @@ public void LoadBusFromConfig(String config)
 
     IMyProgrammableBlock bus = GetBlock(blocks[0]) as IMyProgrammableBlock;
     IMyProgrammableBlock core = GetBlock(blocks[1]) as IMyProgrammableBlock;
-    IMyTextPanel lcd = GetBlock(blocks[2]) as IMyTextPanel;
 
-    if(bus == null || core == null) return;
-
-    Bus = new Module(bus) { 
-        Core = new Module(core) { 
-            Display = lcd 
-        } 
-    };
+    if (bus != null) Bus = new Module(bus);
+    if (core != null) Core = new Module(core);
 }
 
-/**
-* Main program ;)
-*/
 public void Main(String argument)
 {
     Timestamp = System.DateTime.Now.ToBinary();
-    Blocks.Clear();
-    
-    if(Traffic.Count > 40) {
-        Traffic.RemoveRange(0, Traffic.Count - 40);
-    }
 
-    //Echo("Arg: " + argument);
-
-    if (argument != "UNINSTALL" && Bus == null) {
-        Echo("Search bus...");
-        SearchBus();
-    }
-
-    // Appply API interaction
-    if (argument.IndexOf("API://") == 0) {
-        ApplyAPICommunication(argument);
+    if (argument == "UNINSTALL") {
+        Uninstall();
     } else {
-        if (argument == "UNINSTALL") {
-            Uninstall();
-        } else if (argument.IndexOf("SCREEN") != -1) {
-            string[] stack = argument.Split('|');
-            DebugScreen = GetBlockByName(stack[1]) as IMyTextPanel;
-            Echo("Took Screen");
-        } else if (argument != String.Empty) {
-            if (Antenna == null) {
-                GetAntenna(argument);
-            } else {
-                ReceiveData(argument);
-            }
+        ReadArgument(argument);
+        if (Core == null) {
+            RegisterOnFirstCore();
         }
     }
     
-    DetailedInfo();
     Save();
+    ReceiveData();
+    ExecuteCalls();
+    Save();
+
+    if(Traffic.Count > 40) {
+        Traffic.RemoveRange(0, Traffic.Count - 40);
+    }
+    string output = "[MBOS]"
+        + " [" + System.DateTime.Now.ToLongTimeString() + "]" 
+        + " [" + (Core != null ? Core.Count.ToString() : "0") + "]" 
+        + "\n\n"
+        + "[" + NAME + " v" + VERSION + "]\n" 
+        + "Registered on core: " + (
+            Core != null 
+            ? (
+                Core.Block.CustomName
+                + "\n   Stack:" + CallStack.Count
+            ) 
+            : "none"
+        ) + "\n"
+        + "Registered on bus: " + (Bus != null ? Bus.Block.CustomName : "none") + "\n"
+        + "Connected on antenna: " + (Antenna != null ? Antenna.Block.CustomName : "none") + "\n"
+        + "Traffic (Channel: " + Channel + "):\n"
+        + DebugTraffic()
+    ;
+    ComputerDisplay.WriteText(output);
+
+    if (Antenna == null) {
+        Echo("Please, type 'SetAntenna <name of the antenna>' in argument field and press run.");
+    }
 }
 
-/**
- * Take antenna block.
-* <param name="name">Id or Custom Name of Antenna.</param>
- */
-public void GetAntenna(string name)
+public void ReadArgument(String args) 
 {
-    IMyRadioAntenna antenna = GetBlock(name) as IMyRadioAntenna;
-    if (antenna != null) {
-        Antenna = new Module(antenna);
+    if (args == String.Empty) return;
+    
+    if (args.IndexOf("API://") == 0) {
+        ApplyAPICommunication(args);
         return;
     }
-    antenna = GetBlockByName(name) as IMyRadioAntenna;
-    if (antenna != null) {
-        Antenna = new Module(antenna);
+     
+    List<String> parts = new List<String>(args.Split(' ')); 
+    String command = parts[0].Trim();
+    parts.RemoveAt(0);
+    Echo("Execute " + command);
+    switch (command) {
+        case "SetAntenna":
+            SetAntenna(String.Join(" ", parts.ToArray()));
+            Echo("New antenna connected.");
+            break;
+        case "SetChannel":
+            SetChannel(parts[0]);
+            Echo("Channel changed.");
+            break;
+        default:
+            Echo(
+                "Available commands:\n"
+                + "  * SetAntenna <antenna custom name>\n"
+                + "  * SetChannel <new channel name>\n"
+            );
+            break;
     }
 }
 
-/**
- * Receive antenna data.
-* <param name="incoming">Incoming data</param>
- */
-public void ReceiveData(string incoming)
+public void SetAntenna(string name)
 {
+    IMyFunctionalBlock antenna = (GetBlock(name) as IMyFunctionalBlock);
+    antenna =  antenna != null ? antenna : (GetBlockByName(name) as IMyFunctionalBlock);
+
+    if (antenna == null) return;
+    if (antenna is IMyLaserAntenna) {
+        (antenna as IMyLaserAntenna).AttachedProgrammableBlock = Me.EntityId;
+    } else if (antenna is IMyRadioAntenna) {
+        (antenna as IMyRadioAntenna).AttachedProgrammableBlock = Me.EntityId;
+    } else {
+        return;
+    }
+
+    if (Antenna != null) {
+        if (Antenna.Block is IMyLaserAntenna) {
+        (Antenna.Block as IMyLaserAntenna).AttachedProgrammableBlock = 0L;
+        } else {
+            (Antenna.Block as IMyRadioAntenna).AttachedProgrammableBlock = 0L;
+        }
+    }
+    
+    Antenna = new Module(antenna);
+    SetChannel(Channel);
+}
+
+public void SetChannel(string channel) {
+    Channel = channel;
+    List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
+    IGC.GetBroadcastListeners(listeners);
+    foreach(IMyBroadcastListener listener in listeners) {
+        if (listener.Tag == Channel) {
+            BroadcastListener = listener;
+            return;
+        }
+    }
+
+    BroadcastListener = IGC.RegisterBroadcastListener(Channel);
+}
+
+public void ReceiveData()
+{
+    if (BroadcastListener == null ||  BroadcastListener.HasPendingMessage == false) return;
+
+    MyIGCMessage message = BroadcastListener.AcceptMessage();
+    string incoming = message.Data.ToString();
 
     if (incoming == LastSendData || incoming == LastRepeatedData) 
     {
         return; // ignore own echoed data
     }
-    LastAction = "Receive";
-    
     Traffic.Add("< " + incoming);
         
     string[] stack = incoming.Split('|');
     stack = stack.Skip(1).ToArray(); // remove timestamp
-    AddCall(Bus.Core, Bus.ToString(), "API://Dispatch/RadioData/" + GetId(Me) +  "/" + String.Join("|", stack));
+    AddCall(Bus, "API://Dispatch/RadioData/" + GetId(Me) +  "/" + String.Join("|", stack));
     
     // repeat
-    (Antenna.Block as IMyRadioAntenna).TransmitMessage(incoming);
+    IGC.SendBroadcastMessage(Channel, incoming);
     LastRepeatedData = incoming;
 }
 
-/**
-* Get specific block.
-* <param name="id">The block identifier.</param>
-*/
 public IMyTerminalBlock GetBlock(string id)
-{
-    string[] parts = id.Split('|');
-    if (parts.Length != 2) return null;
-    string subTypeId = parts[1].Trim();
-    int gridNumber = Int32.Parse(parts[0].Trim());
+{   
+    long cubeId = 0L;
+    try
+    {
+        cubeId = Int64.Parse(id);
+    }
+    catch (FormatException)
+    {
+        return null;
+    }
+    IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
     
-    List<IMyTerminalBlock> blocks = GetBlocks();
-    
-    for(int i = 0; i < blocks.Count; i++) {
-        if (
-            blocks[i].NumberInGrid == gridNumber 
-            && blocks[i].BlockDefinition.SubtypeId == subTypeId
-            && blocks[i].CubeGrid  == Me.CubeGrid
-        ) {
-            return blocks[i];
-        }
+    if(block != null && block.CubeGrid == Me.CubeGrid) {
+        return block;
     }
     
     return null;
 }
 
-/**
-* Get specific block.
-* <param name="name">Name of block.</param>
-*/
+public string GetId(IMyTerminalBlock block)
+{
+    return block.EntityId.ToString();
+}
+
 public IMyTerminalBlock GetBlockByName(string name)
 {
     // The Block inventory.
@@ -245,17 +290,6 @@ public IMyTerminalBlock GetBlockByName(string name)
     return null;
 }
 
-/**
-* Actualize and return the grid block list.
-*/
-public List<IMyTerminalBlock> GetBlocks() {
-    if (Blocks.Count == 0) GridTerminalSystem.GetBlocks(Blocks);
-    return Blocks;
-}
-
-/**
-* Find cores on the grid.
-*/
 public List<Module> FindCores() {
     List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
     List<Module> result = new List<Module>();
@@ -265,14 +299,8 @@ public List<Module> FindCores() {
     for(int i = 0; i < blocks.Count; i++) {
         if(blocks[i].CubeGrid != Me.CubeGrid) continue;
         
-        if(blocks[i].DetailedInfo.IndexOf("MODULE=Core") != -1) {
-            String[] info = (blocks[i].DetailedInfo).Split('\n');
+        if(blocks[i].CustomData.IndexOf("MODULE=Core") != -1) {
             Module core = new Module((IMyProgrammableBlock)blocks[i]);
-            foreach(String j in info) {
-                if(j.IndexOf("Display=") == 0) {
-                    core.Display = GetBlock((j.Split('='))[1]) as IMyTextPanel;
-                }
-            }
             result.Add(core);
         }
     }
@@ -280,175 +308,82 @@ public List<Module> FindCores() {
     return result;
 }
 
-/**
-* Find busses on the grid.
-* <param name="cores">Existant core list.</param>
-*/
-public List<Module> FindBusses(List<Module> cores) {
-    List<IMyTerminalBlock> blocks = new List<IMyTerminalBlock>();
-    List<Module> result = new List<Module>();
-    
-    if(cores.Count == 0) {
-        return result;
-    }
-    
-    GridTerminalSystem.GetBlocksOfType<IMyProgrammableBlock>(blocks);
-    
-    for(int i = 0; i < blocks.Count; i++) {
-        if(blocks[i].CubeGrid != Me.CubeGrid) continue;
-        
-        if(blocks[i].DetailedInfo.IndexOf("MODULE=Bus") != -1) {
-            String[] info = (blocks[i].DetailedInfo).Split('\n');
-            Module bus = new Module((IMyProgrammableBlock)blocks[i]);
-            foreach(String j in info) {
-                if(j.IndexOf("CORES=") == 0) {
-                    String[] rows = (j.Split('=')[1]).Split('#');
-                    foreach(String r in rows) {
-                        String coreId = r.Split('*')[0];
-                        foreach(Module core in cores) {
-                            if(bus.Core == null && core.ToString() == coreId) {
-                                bus.Core = core;
-                            }
-                        }
-                    }
-                }
-            }
-            result.Add(bus);
-        }
-    }
-    
-    return result;
+public void AddCall(Module module, String argument) {
+    CallStack.Add(new Call(module, argument));
 }
 
-/**
-* Generate id.
-*/
-public string GetId(IMyTerminalBlock block)
+public void ExecuteCalls()
 {
-    return block.NumberInGrid.ToString() + "|" + block.BlockDefinition.SubtypeId;
-}
-
-/**
-* Add a call request to core's call stacks.
-*/
-public void AddCall(Module core, String blockId, String argument) {
-    String configText = core.Block.CustomData;
-
-    if (configText.Length > 0) { 
-        String data = "";
-        String[] configs = configText.Split('\n');
-
-        foreach(String line in configs) {
-            if (line.Length > 0) {
-                string[] parts = line.Split('=');
-                if (parts[0] == "CallStack") {
-                    String stack = String.Empty;
-                    // read config of stack
-                    if(parts.Length == 2) stack = parts[1];
-
-                    // Add to stack
-                    //Echo("Send " + blockId + "~" + argument);
-                    if(stack == String.Empty) {
-                        stack = blockId + "~" + argument;
-                    } else {
-                        stack += "#" + blockId + "~" + argument;
-                    }
-
-                    // Write stack to config
-                    data += "CallStack=" + stack + "\n";
-                } else {
-                    data += line + "\n";
-                }
-            }
-        } 
-
-        core.Block.CustomData = data;
-        (core.Block as IMyProgrammableBlock).TryRun("");
-    } else {
-        Echo("Missing config in CustomData of core:" + core.ToString());
-    }
-}
-
-/**
-* Output detail information.
-*/
-public void DetailedInfo()
-{
-    Echo(
-        "Action: " + LastAction + "...\n\n"
-        + "MODULE=" + NAME + "\n"
-        + "ID=" +GetId(Me) + "\n"
-        + "VERSION=" + VERSION + "\n"
-        + "Bus: " + (Bus != null ? Bus.ToString() : "unregistered") + "\n"
-        + "Antenna: " + (Antenna != null ? Antenna.ToString() : "") + "\n"
-        + "Screen: " + (DebugScreen != null ? DebugScreen.CustomName : "") + "\n"
-    );
-    
-    Output("[" + NAME + " v" + VERSION + "] \n  Last Send: " + LastSendData+" \n  Last Repeat: " + LastRepeatedData+"\n\n");
-
-    DebugTraffic();
-}
-
-/**
-* Search the first Bus and register on it.
-*/
-public void SearchBus()
-{
-    List<Module> busses = FindBusses(FindCores());
-    if (busses.Count == 0) return;
-    Bus = busses[0];
-    //*/
-    AddCall(Bus.Core, Bus.ToString(), "API://AddListener/SendRadio/" + GetId(Me));
-    /*/ // or if needed
-    AddCall(Bus.Core, Bus.Core.ToString(), "API://RegisterModule/" + GetId(Me));
-    //*/
-}
-
-/**
-* Removes BUS from system.
-*/
-public void Uninstall()
-{
-    Echo("Uninstall...");
-    if (Bus == null) return;
-    //*/
-    AddCall(Bus.Core, Bus.ToString(), "API://RemoveListener/SendRadio/" + GetId(Me));
-    /*/ // or if needed
-    AddCall(Bus.Core, Bus.Core.ToString(), "API://RemoveModule/" + GetId(Me));
-    //*/
-}
-
-/**
-* Send info to LCD's and Console.
-*/
-public void Output(String text)
-{
-    if (Bus == null || Bus.Core == null || Bus.Core.Display == null) {
-        Echo("No Core LCD to output: "+text);
+    if(Core == null) {
+        CallStack.Clear();
         return;
     }
-    Bus.Core.Display.WritePublicText(text + "\n", true);
+    List<Call> stack = CallStack;
+    CallStack = new List<Call>();
+
+    foreach(Call call in stack) {
+    string targetId = call.GetId();
+        if ((Core.Block as IMyProgrammableBlock).TryRun("API://Execute/" + targetId + "/" + call.Argument) == false) {
+            CallStack.Add(call);
+        }
+    }
+
+    if(CallStack.Count > 0) {
+        Runtime.UpdateFrequency = UpdateFrequency.Once;
+    }
 }
 
-/**
-* API handler.
-*/
+public void RegisterOnFirstCore()
+{
+    List<Module> cores = FindCores();
+    foreach (Module core in cores) {
+        if ((core.Block as IMyProgrammableBlock).TryRun("API://RegisterModule/" + GetId(Me)) == false) continue;
+        Runtime.UpdateFrequency = UpdateFrequency.None;
+        Core = core;
+        return;
+    }
+    
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
+ }
+
+public void RegisterOnFirstBus(String coreId, String[] busses)
+{
+    foreach(String busId in busses) {
+        IMyProgrammableBlock block = GetBlock(busId) as IMyProgrammableBlock;
+        if (block == null) continue;
+
+        Module bus = new Module(block);
+        if (block.TryRun("API://AddListener/SendRadio/" + GetId(Me))) {
+            Bus = bus;
+            return;
+        }
+    }
+
+    OnCoreRegistration();
+}
+
+public void Uninstall()
+{
+    if (Bus != null) AddCall(Bus, "API://RemoveListener/SendRadio/" + GetId(Me));
+    if (Core != null) AddCall(Core, "API://RemoveModule/" + GetId(Me));
+    Echo("Deinstalled.");
+}
+
 public void ApplyAPICommunication(String apiInput)
 {
     String[] arg = apiInput.Replace("API://", "").Split('/');
     
     switch(arg[0]) {
         case "Registered": // core validated
-            OnRegistration(arg);
+            OnCoreRegistration();
             break;
         case "Removed": // external core removal
-            OnRemoval(arg);
+            OnRemoval();
             break;
-        case "ListenerAdded": // core validated
-            OnRegistration(arg);
+        case "ListenerAdded":
             break;
         case "ListenerRemoved": // external core removal
-            OnRemoval(arg);
+            OnRemoval();
             break;
         case "ScheduleEvent": // core call
             OnTimeEvent(arg);
@@ -460,53 +395,46 @@ public void ApplyAPICommunication(String apiInput)
                 OnEvent(arg[1], arg[2], String.Join("/", data));
             }
             break;
+        case "CoreModules":
+            RegisterOnFirstBus(arg[1], arg[2].Split(','));
+            break;
         default:
             Echo("Unknown request: " + apiInput);
             break;
     }
 }
 
-/**
-* On Core registered.
-*/
-public void OnRegistration(String[] arg)
+public void OnCoreRegistration()
 {
-    // To something after core registered here ;)
+    AddCall(Core, "API://GetModules/" + GetId(Me));
 }
 
-/**
-* From core removed.
-*/
-public void OnRemoval(String[] arg)
+public void OnRemoval()
 {
+    Core = null;
     Bus = null;
     Antenna = null;
     Me.CustomData = "";
 }
 
-/**
-* Core time call.
-*/
 public void OnTimeEvent(String[] arg)
 {
-    Output("[" + NAME + " v" + VERSION + "]");
-    Output("    Antenna: " + (Antenna != null ? Antenna.Block.CustomName : "none"));
+    if (arg[1] != Core.ToString()) return;
+
+    Core.Count = Int32.Parse(arg[2]);
 }
 
-/**
-* Event handler
-*/
 public void OnEvent(String eventName, String sourceId, String data)
 {
     IMyProgrammableBlock source = GetBlock(sourceId) as IMyProgrammableBlock;
     switch(eventName) {
         case "SendRadio":
             String message = Timestamp + "|" + data;
-            // Send data to antenna.
-            (Antenna.Block as IMyRadioAntenna).TransmitMessage(message);
+            if(BroadcastListener != null) {
+                IGC.SendBroadcastMessage(Channel, message);
+            }
             LastSendData = message;
             Traffic.Add("> " + message);
-            LastAction = "Transmit";
             break;
         default:
             Echo("Unknown received event: " + eventName);
@@ -514,10 +442,8 @@ public void OnEvent(String eventName, String sourceId, String data)
     }
 }
 
-public void DebugTraffic()
+public String DebugTraffic()
 {
-    if(DebugScreen == null) return;
-
     String output = "";
 
     int i;
@@ -525,7 +451,5 @@ public void DebugTraffic()
         output += Traffic[i]+"\n";
     }
 
-    DebugScreen.WritePublicText(output, false);
-    DebugScreen.ShowTextureOnScreen();
-    DebugScreen.ShowPublicTextOnScreen();
+    return output;
 }
