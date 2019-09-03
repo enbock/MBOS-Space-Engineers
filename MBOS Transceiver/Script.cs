@@ -1,5 +1,5 @@
 const String NAME = "Transceiver";
-const String VERSION = "1.3.1";
+const String VERSION = "1.4.0";
 const String DATA_FORMAT = "1.1";
 
 public class Module {
@@ -175,10 +175,6 @@ public void ReadArgument(String args)
     String command = parts[0].Trim();
     parts.RemoveAt(0);
     switch (command) {
-        /*case "SetAntenna":
-            SetAntenna(String.Join(" ", parts.ToArray()));
-            Echo("New antenna connected.");
-            break;*/
         case "SetChannel":
             SetChannel(parts[0]);
             Echo("Channel changed.");
@@ -193,7 +189,6 @@ public void ReadArgument(String args)
         default:
             Echo(
                 "Available commands:\n"
-                //+ "  * SetAntenna <antenna name>\n"
                 + "  * SetChannel <new channel name>\n"
                 + "  * SendMessage <Message text>\n"
                 + "  * ReadMessages\n"
@@ -201,32 +196,6 @@ public void ReadArgument(String args)
             break;
     }
 }
-
-/*public void SetAntenna(string name)
-{
-    IMyFunctionalBlock antenna = (GetBlock(name) as IMyFunctionalBlock);
-    antenna =  antenna != null ? antenna : (GetBlockByName(name) as IMyFunctionalBlock);
-
-    if (antenna == null) return;
-    if (antenna is IMyLaserAntenna) {
-        (antenna as IMyLaserAntenna).AttachedProgrammableBlock = Me.EntityId;
-    } else if (antenna is IMyRadioAntenna) {
-        (antenna as IMyRadioAntenna).AttachedProgrammableBlock = Me.EntityId;
-    } else {
-        return;
-    }
-
-    if (Antenna != null) {
-        if (Antenna.Block is IMyLaserAntenna) {
-        (Antenna.Block as IMyLaserAntenna).AttachedProgrammableBlock = 0L;
-        } else {
-            (Antenna.Block as IMyRadioAntenna).AttachedProgrammableBlock = 0L;
-        }
-    }
-    
-    Antenna = new Module(antenna);
-    SetChannel(Channel);
-}*/
 
 public void SetChannel(string channel) {
     Channel = channel;
@@ -254,11 +223,6 @@ public void ReceiveMessages()
         string messageText =  String.Join("|", stack);
         Traffic.Add("< " + messageText);
         AddCall(Bus, "API://Dispatch/RadioData/" + GetId(Me) +  "/" + messageText);
-        
-        /* // repeat
-        IGC.SendBroadcastMessage(Channel, incoming);
-        LastRepeatedData = incoming;
-        */
     }
 }
 

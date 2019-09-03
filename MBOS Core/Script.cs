@@ -1,4 +1,4 @@
-﻿const String VERSION = "2.5.1";
+﻿const String VERSION = "2.5.2";
 const String DATA_FORMAT = "1.1";
 
 public class ConfigValue
@@ -6,12 +6,6 @@ public class ConfigValue
     public String Key; 
     public String Value; 
      
-    public ConfigValue(String data)  
-    { 
-        var parts = data.Split('='); 
-        Key = parts[0]; 
-        Value = parts[1]; 
-    } 
     public ConfigValue(String key, string value)  
     { 
         Key = key; 

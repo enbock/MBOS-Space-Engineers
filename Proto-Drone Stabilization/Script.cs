@@ -1,4 +1,4 @@
-﻿const String VERSION = "1.1.0";
+﻿const String VERSION = "1.1.1";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -76,7 +76,7 @@ IMyRemoteControl ctrlFlight = null;
  */
 public Program() {
     Gyros.Clear();
-    Runtime.UpdateFrequency = UpdateFrequency.Update1;
+    Runtime.UpdateFrequency = UpdateFrequency.Update10;
     GridTerminalSystem.GetBlocksOfType<IMyGyro>(Gyros);
     for(int i = Gyros.Count -1 ; i>= 0; i--) {
         if (Gyros[i].GyroOverride == false) {

@@ -3,4 +3,5 @@
 	<s:String x:Key="/Default/Environment/AssemblyExplorer/XmlDocument/@EntryValue">&lt;AssemblyExplorer&gt;&#xD;
   &lt;Assembly Path="D:\Steam\steamapps\common\SpaceEngineersModSDK\Bin64_Profile\Sandbox.Game.dll" /&gt;&#xD;
   &lt;Assembly Path="D:\Steam\steamapps\common\SpaceEngineersModSDK\Bin64_Profile\SpaceEngineers.Game.dll" /&gt;&#xD;
+  &lt;Assembly Path="D:\Steam\steamapps\common\SpaceEngineersModSDK\Bin64_Profile\Sandbox.Common.dll" /&gt;&#xD;
 &lt;/AssemblyExplorer&gt;</s:String></wpf:ResourceDictionary>
