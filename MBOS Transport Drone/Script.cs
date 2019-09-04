@@ -8,7 +8,7 @@ SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #1:48066.95:30412.84:2303
 SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #3:48192.22:30520.91:22778.19:GPS:Gandur #4:48040.41:30641.55:22847.58:>GPS:Gandur #5:47962.97:30626.48:22888.47:
 SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #4:48040.41:30641.55:22847.58:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #1:48066.95:30412.84:23038.05:>GPS:Gandur #6:48061.14:30392.56:23044.62:
 SendMessage 97692146812461032|Start
- */
+*/
 
 public class ConfigValue
 { 
@@ -31,14 +31,17 @@ public class Transceiver {
     
     public string Channel;
     public IMyBroadcastListener BroadcastListener = null;
-    public string MyId = "unknown";
+    protected string MyId = "unknown";
+
+    public string EntityId { get { return MyId; }}
     
     protected string LastSendData = "";
     protected List<String> Traffic = new List<String>();
     protected IMyIntergridCommunicationSystem IGC;
 
-    public Transceiver(IMyIntergridCommunicationSystem igc, string channel = "default") {
+    public Transceiver(IMyIntergridCommunicationSystem igc, string myId, string channel = "default") {
         IGC = igc;
+        MyId = myId;
         SetChannel(channel);
     }
 
@@ -109,7 +112,53 @@ public class Transceiver {
     }
 }
 
-public class DroneProgram
+public class Batteries {
+    protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();
+    
+    public Batteries(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
+        BatteryList.Clear();
+        gridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(BatteryList, (IMyBatteryBlock block) => block.CubeGrid.EntityId == gridId);
+    }
+
+    public void SetReacharge() 
+    {
+        foreach(IMyBatteryBlock battery in BatteryList) {
+            battery.ChargeMode = ChargeMode.Recharge;
+        }
+    }
+
+    public void SetAuto() 
+    {
+        foreach(IMyBatteryBlock battery in BatteryList) {
+            battery.ChargeMode = ChargeMode.Auto;
+        }
+    }
+}
+
+public class Lights {
+    protected List<IMyLightingBlock> LightList = new List<IMyLightingBlock>();
+    
+    public Lights(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
+        LightList.Clear();
+        gridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(LightList, (IMyLightingBlock block) => block.CubeGrid.EntityId == gridId);
+    }
+
+    public void TurnOn() 
+    {
+        foreach(IMyLightingBlock light in LightList) {
+            light.Enabled = true;
+        }
+    }
+
+    public void TurnOff() 
+    {
+        foreach(IMyLightingBlock light in LightList) {
+            light.Enabled = false;
+        }
+    }
+}
+
+public class TransportDrone
 {
     public class FlightPath {
         public List<MyWaypointInfo> Waypoints = new List<MyWaypointInfo>();
@@ -152,19 +201,37 @@ public class DroneProgram
     }
 
     public IMyRemoteControl RemoteControl;
-    public IMyGridTerminalSystem GridTerminalSystem;
+    protected IMyGridTerminalSystem GridTerminalSystem;
     public Transceiver Transmitter;
+    public Batteries Batteries;
+    public Lights Lights;
     public IMyShipConnector Connector;
-    public List<FlightPath> FlightPaths = new List<FlightPath>();
+    public List<FlightPath> FlightPaths { get; } = new List<FlightPath>();
     public string Mode = "Init";
     public Vector3D Target = Vector3D.Zero;
-    public FlightPath CurrentPath;
-    public double Distance;
+    public Vector3D StartPoint = Vector3D.Zero;
+    public FlightPath CurrentPath = new FlightPath();
+    public double Distance = 0.0;
 
-    public DroneProgram(IMyRemoteControl remoteControl) 
+    protected DateTime Mark = DateTime.Now;
+
+    public TransportDrone(
+        IMyRemoteControl remoteControl, 
+        IMyGridTerminalSystem gridTerminalSystem,
+        Transceiver transmitter, 
+        Batteries batteries, 
+        Lights lights,
+        IMyShipConnector connector
+    ) 
     {
         RemoteControl = remoteControl;
-        RemoteControl.SetAutoPilotEnabled(false);
+        GridTerminalSystem = gridTerminalSystem;
+        Transmitter = transmitter;
+        Batteries = batteries;
+        Lights = lights;
+        Connector = connector;
+
+        Dock();
     }
 
     public void Run() 
@@ -184,10 +251,13 @@ public class DroneProgram
 
         switch(command) {
             case "AddFlightPath": 
+                Lights.TurnOn();
                 AddFlightPath(stack[0]);
                 break;
             case "Start":
-                StartFlight();
+                Lights.TurnOn();
+                Mark = DateTime.Now.AddSeconds(5);
+                Mode = "Mark";
                 break;
         }
     }
@@ -210,19 +280,25 @@ public class DroneProgram
 
     protected void CheckFlight()
     {
-        if (TargetReached() == false && RemoteControl.IsAutoPilotEnabled) return;
+        Distance = Vector3D.Distance(RemoteControl.GetPosition(), Target);
+        double traveled = Vector3D.Distance(RemoteControl.GetPosition(), StartPoint);
+
+        if (
+            (Distance > (Mode == "Direct" ? 0.5 : 5.0)) 
+            && RemoteControl.IsAutoPilotEnabled
+        ) {
+            double minDistance = traveled > Distance ? Distance : traveled;
+            double multiplier = (Mode == "Direct" || traveled > Distance) ? 4.0 : 2.0;
+            float speedLimit = Convert.ToSingle(minDistance < (100.0 * multiplier) ? minDistance / multiplier : 100.0);
+            RemoteControl.SpeedLimit = speedLimit < 1f ? 1f : speedLimit;
+            return;
+        }
+        
+        if (Mark >= DateTime.Now) return;
 
         switch(Mode) {
             case "Direct":
                 Dock();
-                if (FlightPaths.Count > 0) {
-                    if (Connector.Status == MyShipConnectorStatus.Connected) {
-                        StartFlight();
-                        break;
-                    } 
-                    FlightNextPath();
-                    break;
-                }
                 break;
             case "Flight":
                 if (CurrentPath.HasToDock) {
@@ -240,6 +316,20 @@ public class DroneProgram
                 break;
             case "None":
                 break;
+            case "Dock":
+                MarkDock();
+                break;
+            case "Mark":
+                if (FlightPaths.Count > 0) {
+                    if (Connector.Status == MyShipConnectorStatus.Connected) {
+                        StartFlight();
+                    } else {
+                        FlightNextPath();
+                    }
+                    break;
+                } 
+                Mode = "None";
+                break;
             default:
                 if (FlightPaths.Count > 0) {
                     StartFlight();
@@ -251,12 +341,17 @@ public class DroneProgram
     protected void DirectFlight(MyWaypointInfo waypoint)
     {
         Mode = "Direct";
+        StartPoint = RemoteControl.GetPosition();
         Target = waypoint.Coords;
         
-        Connector.Disconnect();
+        Batteries.SetAuto();
+        Lights.TurnOn();
+        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
+            Connector.Disconnect();
+        }
 
         RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 3f;
+        RemoteControl.SpeedLimit = 1f;
         RemoteControl.SetCollisionAvoidance(false);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
@@ -270,10 +365,11 @@ public class DroneProgram
         FlightPaths.RemoveAt(0);
         Mode = "Flight";
         
+        StartPoint = RemoteControl.GetPosition();
         Target = CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1].Coords;
         
         RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 100f;
+        RemoteControl.SpeedLimit = 1f;
         RemoteControl.SetCollisionAvoidance(true);
         RemoteControl.SetDockingMode(false);
         RemoteControl.ClearWaypoints();
@@ -287,40 +383,33 @@ public class DroneProgram
 
     protected void Dock() 
     {
-        Mode = "None";
+        Mode = "Dock";
         RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 5f;
+        RemoteControl.SpeedLimit = 1f;
         RemoteControl.SetAutoPilotEnabled(false);
         RemoteControl.SetCollisionAvoidance(true);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
-        
-        FindConnector();
         Connector.Connect();
+        Mark = DateTime.Now.AddSeconds(2);
     }
 
-    protected void FindConnector() 
+    protected void MarkDock()
     {
-        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
-        GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(connectors);
-
-        foreach (IMyShipConnector connector in connectors) {
-            if (connector.CubeGrid.EntityId != RemoteControl.CubeGrid.EntityId) {
-                continue;
+        Mode = "Mark";
+        Connector.Connect();
+        if(Connector.Status == MyShipConnectorStatus.Connected) {
+            Mark = DateTime.Now.AddSeconds(15);
+            if (Connector.OtherConnector.CubeGrid.IsStatic) {
+                Batteries.SetReacharge();
+                Lights.TurnOff();
             }
-            Connector = connector;
         }
-    }
-
-    protected bool TargetReached() 
-    {
-        Distance = Vector3D.Distance(RemoteControl.GetPosition(), Target);
-        return (bool)(Distance < (Mode == "Direct" ? 1.0 : 5.0));
     }
 }
 
 List<ConfigValue> Config = new List<ConfigValue>();
-DroneProgram Drone;
+TransportDrone Drone;
 IMyTextSurface ComputerDisplay;
 
 public Program()
@@ -343,9 +432,10 @@ public void Save()
     if(Drone != null) {
         GetConfig("RemoteControl").Value = GetId(Drone.RemoteControl);
         GetConfig("Channel").Value = Drone.Transmitter.Channel;
+        GetConfig("Mode").Value = Drone.Mode;
 
         List<string> pathConfig = new List<string>();
-        foreach(DroneProgram.FlightPath path in Drone.FlightPaths) {
+        foreach(TransportDrone.FlightPath path in Drone.FlightPaths) {
             pathConfig.Add(path.ToString());
         }
         GetConfig("Paths").Value = String.Join("*", pathConfig.ToArray());
@@ -363,23 +453,33 @@ public void InitProgram()
     bool missingConditions = false;
     LoadConfig();
     IMyRemoteControl remoteControl = GetBlock(GetConfig("RemoteControl").Value) as IMyRemoteControl;
+    IMyShipConnector cargoConnector = FindConnector();
+    ConfigValue channel = GetConfig("Channel");
+    channel.Value = channel.Value != String.Empty ? channel.Value : "default";
     
     Save(); // create default data
     if(remoteControl == null) {
         missingConditions = true;
         Echo("Remote Controll missing. Run `SetRemoteControl <name>`");
     }
+    if(cargoConnector == null) {
+        missingConditions = true;
+        Echo("Can not find connector with custom data 'Cargo' in this grid.");
+    }
 
-    if(missingConditions) return;
+    if(missingConditions) {
+        ComputerDisplay.WriteText("\n\n\nMissing configuration.", false);
+        return;
+    }
 
-    ConfigValue channel = GetConfig("Channel");
-
-    Drone = new DroneProgram(remoteControl) {
-        GridTerminalSystem = GridTerminalSystem,
-        Transmitter = new Transceiver(IGC, channel.Value != String.Empty ? channel.Value : "default") {
-            MyId = Me.CubeGrid.EntityId.ToString()
-        }
-    };
+    Drone = new TransportDrone(
+        remoteControl, 
+        GridTerminalSystem,
+        new Transceiver(IGC, Me.CubeGrid.EntityId.ToString(), channel.Value),
+        new Batteries(GridTerminalSystem, Me.CubeGrid.EntityId),
+        new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
+        cargoConnector
+    );
 
     Drone.FlightPaths.Clear();
     List<String> pathList = new List<String>(GetConfig("Paths").Value.Split('*'));
@@ -387,6 +487,8 @@ public void InitProgram()
         if (pathData == String.Empty) continue;
         Drone.AddFlightPath(pathData);
     }
+    string mode = GetConfig("Mode").Value;
+    if (mode != String.Empty) Drone.Mode = mode;
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -419,12 +521,23 @@ public void Main(string argument, UpdateType updateSource)
     
     if (Drone == null) {
         InitProgram();
-        if (Drone == null) return;
+        if (Drone == null) { 
+            Runtime.UpdateFrequency = UpdateFrequency.None;
+            return;
+        }
     }
 
     Drone.Run();
     Save();
     UpdateInfo();
+
+    if (Drone.Mode != "None") {
+        Runtime.UpdateFrequency = UpdateFrequency.Update10;
+    } else if (Drone.Connector.Status == MyShipConnectorStatus.Connected && Drone.Connector.OtherConnector.CubeGrid.IsStatic) {
+        Runtime.UpdateFrequency = UpdateFrequency.None;
+    } else {
+        Runtime.UpdateFrequency = UpdateFrequency.Update100;
+    }
 }
 
 public ConfigValue GetConfig(String key) {
@@ -461,6 +574,21 @@ public string GetId(IMyTerminalBlock block)
     return block.EntityId.ToString();
 }
 
+public IMyShipConnector FindConnector() 
+{
+    List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+    GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+        connectors, 
+        (IMyShipConnector connector) => connector.CubeGrid.EntityId == Me.CubeGrid.EntityId && connector.CustomData.Trim() == "Cargo"
+    );
+
+    if (connectors.Count > 0) {
+        return connectors[0];
+    }
+
+    return null;
+}
+
 public void UpdateInfo()
 {
     string currentPath = "";
@@ -481,7 +609,7 @@ public void UpdateInfo()
         + "Next Target: " + Drone.Target.ToString() + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        + "Traffic (channel:'" + Drone.Transmitter.Channel +"' id:'" + Drone.Transmitter.MyId + "'):\n\n"
+        + "Traffic (channel:'" + Drone.Transmitter.Channel +"' id:'" + Drone.Transmitter.EntityId + "'):\n\n"
         + Drone.Transmitter.DebugTraffic()
     ;
     ComputerDisplay.WriteText(output, false);
@@ -516,6 +644,10 @@ public void ReadArgument(String args)
             Echo("Transmitter Channel " + allArgs + "configured.");
             break;
 
+        case "ReadMessages":
+            Echo("Received radio data.");
+            break;
+
         case "Demo":
             Drone.FlightPaths.Clear();
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #1:48066.95:30412.84:23038.05:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #3:48192.22:30520.91:22778.19:");
@@ -525,7 +657,7 @@ public void ReadArgument(String args)
             break;
 
         default:
-            Echo("Available Commands: SetRemoteControl");
+            Echo("Available Commands: SetRemoteControl, SetChannel");
             break;
     }
 }
