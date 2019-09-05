@@ -3,160 +3,12 @@ const String VERSION = "2.0.0";
 const String DATA_FORMAT = "2.0";
 
 /**
-DEMO data:
+DEMO radio data:
 SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #1:48066.95:30412.84:23038.05:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #3:48192.22:30520.91:22778.19:
 SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #3:48192.22:30520.91:22778.19:GPS:Gandur #4:48040.41:30641.55:22847.58:>GPS:Gandur #5:47962.97:30626.48:22888.47:
 SendMessage 97692146812461032|AddFlightPath|GPS:Gandur #4:48040.41:30641.55:22847.58:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #1:48066.95:30412.84:23038.05:>GPS:Gandur #6:48061.14:30392.56:23044.62:
 SendMessage 97692146812461032|Start
 */
-
-public class ConfigValue
-{ 
-    public String Key; 
-    public String Value; 
-
-    public ConfigValue(String key, string value)  
-    { 
-        Key = key; 
-        Value = value; 
-    } 
-     
-    public override String ToString()
-    { 
-        return Key + '=' + Value; 
-    } 
-}
-
-public class Transceiver {
-    
-    public string Channel;
-    public IMyBroadcastListener BroadcastListener = null;
-    protected string MyId = "unknown";
-
-    public string EntityId { get { return MyId; }}
-    
-    protected string LastSendData = "";
-    protected List<String> Traffic = new List<String>();
-    protected IMyIntergridCommunicationSystem IGC;
-
-    public Transceiver(IMyIntergridCommunicationSystem igc, string myId, string channel = "default") {
-        IGC = igc;
-        MyId = myId;
-        SetChannel(channel);
-    }
-
-    public void SetChannel(string channel)
-    {
-        Channel = channel;
-
-        List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
-        IGC.GetBroadcastListeners(listeners);
-        BroadcastListener = IGC.RegisterBroadcastListener(Channel);
-        BroadcastListener.SetMessageCallback("ReadMessages");
-    }
-
-    public string ReceiveMessage()
-    {
-        if (BroadcastListener == null) return String.Empty;
-
-        while(BroadcastListener.HasPendingMessage) {
-            MyIGCMessage message = BroadcastListener.AcceptMessage();
-            string incoming = message.Data.ToString();
-
-            if (incoming == LastSendData) 
-            {
-                return String.Empty; // ignore own echoed data
-            }
-                
-            string[] stack = incoming.Trim().Split('|');
-
-            if(stack[1] != MyId) {
-                return String.Empty;
-            }
-
-            stack = stack.Skip(2).ToArray(); // remove timestamp and id
-
-            string messageText = String.Join("|", stack);
-            Traffic.Add("< " + messageText);
-
-            return messageText;
-        }
-
-        return String.Empty;
-    }
-
-    public void SendMessage(String data) 
-    {
-        String message = System.DateTime.Now.ToBinary() + "|" + MyId + "|" + data;
-        if(BroadcastListener != null) {
-            IGC.SendBroadcastMessage(Channel, message, TransmissionDistance.ConnectedConstructs);
-        }
-        LastSendData = message;
-        Traffic.Add("> " + data);
-    }
-
-    public String DebugTraffic()
-    {
-        if(Traffic.Count > 20) {
-            Traffic.RemoveRange(0, Traffic.Count - 20);
-        }
-        
-        String output = "";
-
-        int i;
-        for(i=Traffic.Count - 1; i >= 0; i--) {
-            output += Traffic[i]+"\n";
-        }
-
-        return output;
-    }
-}
-
-public class Batteries {
-    protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();
-    
-    public Batteries(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
-        BatteryList.Clear();
-        gridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(BatteryList, (IMyBatteryBlock block) => block.CubeGrid.EntityId == gridId);
-    }
-
-    public void SetReacharge() 
-    {
-        foreach(IMyBatteryBlock battery in BatteryList) {
-            battery.ChargeMode = ChargeMode.Recharge;
-        }
-    }
-
-    public void SetAuto() 
-    {
-        foreach(IMyBatteryBlock battery in BatteryList) {
-            battery.ChargeMode = ChargeMode.Auto;
-        }
-    }
-}
-
-public class Lights {
-    protected List<IMyLightingBlock> LightList = new List<IMyLightingBlock>();
-    
-    public Lights(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
-        LightList.Clear();
-        gridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(LightList, (IMyLightingBlock block) => block.CubeGrid.EntityId == gridId);
-    }
-
-    public void TurnOn() 
-    {
-        foreach(IMyLightingBlock light in LightList) {
-            light.Enabled = true;
-        }
-    }
-
-    public void TurnOff() 
-    {
-        foreach(IMyLightingBlock light in LightList) {
-            light.Enabled = false;
-        }
-    }
-}
 
 public class TransportDrone
 {
@@ -165,7 +17,7 @@ public class TransportDrone
         public MyWaypointInfo DockingAt = MyWaypointInfo.Empty;
         public bool HasToDock = false;
 
-        public void SetDockingAt(string dockingPoint) 
+        public void SetDockingAt(String dockingPoint) 
         {
             HasToDock = false;
             if (dockingPoint != String.Empty) {
@@ -177,8 +29,8 @@ public class TransportDrone
             }
         }
 
-        public override string ToString() {
-            string pathExport = "";
+        public override String ToString() {
+            String pathExport = "";
             foreach(MyWaypointInfo waypoint in Waypoints) {
                 pathExport += waypoint.ToString();
             }
@@ -186,7 +38,7 @@ public class TransportDrone
             return pathExport + ">" + (HasToDock ? DockingAt.ToString() : String.Empty);
         }
 
-        public static FlightPath ParseString(string pathData)
+        public static FlightPath ParseString(String pathData)
         {
             List<String> gpsList = new List<String>(pathData.Split('>'));
             FlightPath path = new FlightPath();
@@ -202,12 +54,12 @@ public class TransportDrone
 
     public IMyRemoteControl RemoteControl;
     protected IMyGridTerminalSystem GridTerminalSystem;
-    public Transceiver Transmitter;
+    public Transceiver Transceiver;
     public Batteries Batteries;
     public Lights Lights;
     public IMyShipConnector Connector;
     public List<FlightPath> FlightPaths { get; } = new List<FlightPath>();
-    public string Mode = "Init";
+    public String Mode = "Init";
     public Vector3D Target = Vector3D.Zero;
     public Vector3D StartPoint = Vector3D.Zero;
     public FlightPath CurrentPath = new FlightPath();
@@ -218,15 +70,15 @@ public class TransportDrone
     public TransportDrone(
         IMyRemoteControl remoteControl, 
         IMyGridTerminalSystem gridTerminalSystem,
-        Transceiver transmitter, 
+        Transceiver transceiver, 
         Batteries batteries, 
         Lights lights,
         IMyShipConnector connector
-    ) 
+    )
     {
         RemoteControl = remoteControl;
         GridTerminalSystem = gridTerminalSystem;
-        Transmitter = transmitter;
+        Transceiver = transceiver;
         Batteries = batteries;
         Lights = lights;
         Connector = connector;
@@ -236,17 +88,17 @@ public class TransportDrone
 
     public void Run() 
     {
-        string receivedMessage = Transmitter.ReceiveMessage();
+        String receivedMessage = Transceiver.ReceiveMessage();
 
         if(receivedMessage != String.Empty) ExecuteMessage(receivedMessage);
 
         CheckFlight();
     }
 
-    public void ExecuteMessage(string message) 
+    public void ExecuteMessage(String message) 
     {
         List<String> stack = new List<String>(message.Split('|'));
-        string command = stack[0];
+        String command = stack[0];
         stack.RemoveAt(0);
 
         switch(command) {
@@ -262,7 +114,7 @@ public class TransportDrone
         }
     }
 
-    public void AddFlightPath(string gpsList) 
+    public void AddFlightPath(String gpsList) 
     {
         FlightPath path = FlightPath.ParseString(gpsList);
 
@@ -408,17 +260,12 @@ public class TransportDrone
     }
 }
 
-List<ConfigValue> Config = new List<ConfigValue>();
 TransportDrone Drone;
-IMyTextSurface ComputerDisplay;
+MBOS Sys;
 
 public Program()
 {
-    ComputerDisplay = Me.GetSurface(0);
-    ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
-    ComputerDisplay.ClearImagesFromSelection();
-    ComputerDisplay.ChangeInterval = 0;
-
+    Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
     Runtime.UpdateFrequency = UpdateFrequency.None;
 
     InitProgram();
@@ -426,38 +273,32 @@ public Program()
 
 public void Save()
 {
-    List<String> store = new List<String>();  
-    int i; 
-
     if(Drone != null) {
-        GetConfig("RemoteControl").Value = GetId(Drone.RemoteControl);
-        GetConfig("Channel").Value = Drone.Transmitter.Channel;
-        GetConfig("Mode").Value = Drone.Mode;
+        Sys.Config("RemoteControl").Block = Drone.RemoteControl;
+        Sys.Config("Channel").Value = Drone.Transceiver.Channel;
+        Sys.Config("Mode").Value = Drone.Mode;
 
-        List<string> pathConfig = new List<string>();
+        List<String> pathConfig = new List<String>();
         foreach(TransportDrone.FlightPath path in Drone.FlightPaths) {
             pathConfig.Add(path.ToString());
         }
-        GetConfig("Paths").Value = String.Join("*", pathConfig.ToArray());
+        Sys.Config("Paths").Value = String.Join("*", pathConfig.ToArray());
     }
-     
-    for(i = 0; i < Config.Count; i++) { 
-        store.Add(Config[i].ToString()); 
-    } 
-     
-    Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
+    
+    Sys.SaveConfig();
 }
 
 public void InitProgram() 
 {
-    bool missingConditions = false;
-    LoadConfig();
-    IMyRemoteControl remoteControl = GetBlock(GetConfig("RemoteControl").Value) as IMyRemoteControl;
+    Sys.LoadConfig();
+
+    IMyRemoteControl remoteControl = Sys.Config("RemoteControl").Block as IMyRemoteControl;
     IMyShipConnector cargoConnector = FindConnector();
-    ConfigValue channel = GetConfig("Channel");
-    channel.Value = channel.Value != String.Empty ? channel.Value : "default";
+    String channel = Sys.Config("Channel").ValueWithDefault("default");
     
     Save(); // create default data
+
+    bool missingConditions = false;
     if(remoteControl == null) {
         missingConditions = true;
         Echo("Remote Controll missing. Run `SetRemoteControl <name>`");
@@ -466,56 +307,34 @@ public void InitProgram()
         missingConditions = true;
         Echo("Can not find connector with custom data 'Cargo' in this grid.");
     }
-
     if(missingConditions) {
-        ComputerDisplay.WriteText("\n\n\nMissing configuration.", false);
+        Sys.ComputerDisplay.WriteText("\n\n\nMissing configuration.", false);
         return;
     }
 
     Drone = new TransportDrone(
         remoteControl, 
         GridTerminalSystem,
-        new Transceiver(IGC, Me.CubeGrid.EntityId.ToString(), channel.Value),
+        new Transceiver(Sys, channel),
         new Batteries(GridTerminalSystem, Me.CubeGrid.EntityId),
         new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
         cargoConnector
     );
 
     Drone.FlightPaths.Clear();
-    List<String> pathList = new List<String>(GetConfig("Paths").Value.Split('*'));
+    List<String> pathList = new List<String>(Sys.Config("Paths").Value.Split('*'));
     foreach(String pathData in pathList) {
         if (pathData == String.Empty) continue;
         Drone.AddFlightPath(pathData);
     }
-    string mode = GetConfig("Mode").Value;
-    if (mode != String.Empty) Drone.Mode = mode;
+    Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
-public void LoadConfig()
-{ 
-    string data = Me.CustomData;
-    
-    if (data.Length > 0) { 
-        String[] configs = data.Split('\n'); 
-        
-        if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
-        
-        for(int i = 1; i < configs.Length; i++) {
-            String line = configs[i]; 
-            if (line.Length > 0) {
-                string[] parts = line.Split('=');
-                if(parts.Length != 2) continue;
-                ConfigValue config = GetConfig(parts[0].Trim());
-                config.Value = config.Value != String.Empty ? config.Value : parts[1].Trim();
-            }
-        } 
-    } 
-} 
 
-public void Main(string argument, UpdateType updateSource)
+public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
     
@@ -540,40 +359,6 @@ public void Main(string argument, UpdateType updateSource)
     }
 }
 
-public ConfigValue GetConfig(String key) {
-    ConfigValue config = Config.Find(x => x.Key == key);
-    if(config != null) return config;
-     
-    ConfigValue newValue = new ConfigValue(key, String.Empty); 
-    Config.Add(newValue); 
-    return newValue; 
-} 
-
-public IMyTerminalBlock GetBlock(string id)
-{   
-    long cubeId = 0L;
-    try
-    {
-        cubeId = Int64.Parse(id);
-    }
-    catch (FormatException)
-    {
-        return null;
-    }
-    IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
-    
-    if(block != null && block.CubeGrid == Me.CubeGrid) {
-        return block;
-    }
-    
-    return null;
-}
-
-public string GetId(IMyTerminalBlock block)
-{
-    return block.EntityId.ToString();
-}
-
 public IMyShipConnector FindConnector() 
 {
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
@@ -591,14 +376,14 @@ public IMyShipConnector FindConnector()
 
 public void UpdateInfo()
 {
-    string currentPath = "";
+    String currentPath = "";
     List<MyWaypointInfo> waypoints = new List<MyWaypointInfo>();
     Drone.RemoteControl.GetWaypointInfo(waypoints);
     foreach(MyWaypointInfo waypoint in waypoints) {
         currentPath += waypoint.ToString();
     }
 
-    string output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
+    String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
@@ -609,10 +394,10 @@ public void UpdateInfo()
         + "Next Target: " + Drone.Target.ToString() + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        + "Traffic (channel:'" + Drone.Transmitter.Channel +"' id:'" + Drone.Transmitter.EntityId + "'):\n\n"
-        + Drone.Transmitter.DebugTraffic()
+        + "Traffic (channel:'" + Drone.Transceiver.Channel +"' id:'" + Drone.Transceiver.MyId + "'):\n\n"
+        + Drone.Transceiver.DebugTraffic()
     ;
-    ComputerDisplay.WriteText(output, false);
+    Sys.ComputerDisplay.WriteText(output, false);
 }
 
 public void ReadArgument(String args) 
@@ -630,18 +415,18 @@ public void ReadArgument(String args)
             if (Drone != null && block != null) {
                 Drone.RemoteControl = block as IMyRemoteControl;
             } else {
-                GetConfig("RemoteControl").Value = block != null ? GetId(block) : "";
+                Sys.Config("RemoteControl").Block = block;
             }
             Echo("RemoteControl '" + allArgs + "' configured.");
             break;
 
         case "SetChannel":
             if (Drone != null) {
-                Drone.Transmitter.SetChannel(allArgs);
+                Drone.Transceiver.SetChannel(allArgs);
             } else {
-                GetConfig("Channel").Value = allArgs;
+                Sys.Config("Channel").Value = allArgs;
             }
-            Echo("Transmitter Channel " + allArgs + "configured.");
+            Echo("Transceiver Channel " + allArgs + "configured.");
             break;
 
         case "ReadMessages":
@@ -653,11 +438,273 @@ public void ReadArgument(String args)
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #1:48066.95:30412.84:23038.05:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #3:48192.22:30520.91:22778.19:");
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #3:48192.22:30520.91:22778.19:GPS:Gandur #4:48040.41:30641.55:22847.58:>GPS:Gandur #5:47962.97:30626.48:22888.47:");
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #4:48040.41:30641.55:22847.58:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #1:48066.95:30412.84:23038.05:>GPS:Gandur #6:48061.14:30392.56:23044.62:");
-            Drone.ExecuteMessage("Start");
+            //Drone.ExecuteMessage("Start");
             break;
 
         default:
             Echo("Available Commands: SetRemoteControl, SetChannel");
             break;
+    }
+}
+
+public class MBOS {
+    public static MBOS Sys;
+    
+    public class ConfigValue
+    { 
+        public String Key; 
+        protected String _value; 
+        
+        public String Value {
+            get { return _value; }
+            set { _value = value; }
+        }
+
+        public IMyTerminalBlock Block {
+            get { 
+                return Sys.GetBlock(_value);
+            }
+            set { _value = value == null ? "" : Sys.GetId(value); }
+        }
+
+        public ConfigValue(String key, String value)  
+        { 
+            Key = key; 
+            _value = value; 
+        } 
+
+        public String ValueWithDefault(String defaultValue) 
+        {
+            return Value != String.Empty ? Value : defaultValue;
+        }
+        
+        public override String ToString()
+        { 
+            return Key + '=' + _value; 
+        } 
+    }
+
+    public String Name = "Module";
+    public String Version = "0.0.0";
+    public String DataFormat = "0";
+    public IMyProgrammableBlock Me;
+    public IMyGridTerminalSystem GridTerminalSystem;
+    public IMyIntergridCommunicationSystem IGC;
+    public Action<string> Echo;
+
+    public long EntityId { get { return Me.CubeGrid.EntityId; }}
+
+    public List<ConfigValue> ConfigList = new List<ConfigValue>();
+    public IMyTextSurface ComputerDisplay;
+
+    public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
+        Me = me;
+        GridTerminalSystem = gridTerminalSystem;
+        IGC = igc;
+        Echo = echo;
+        
+        ComputerDisplay = Me.GetSurface(0);
+        ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
+        ComputerDisplay.ClearImagesFromSelection();
+        ComputerDisplay.ChangeInterval = 0;
+
+        MBOS.Sys = this;
+    }
+
+    public ConfigValue Config(String key) {
+        ConfigValue config = ConfigList.Find(x => x.Key == key);
+        if(config != null) return config;
+        
+        ConfigValue newValue = new ConfigValue(key, String.Empty); 
+        ConfigList.Add(newValue); 
+        return newValue; 
+    } 
+
+    public IMyTerminalBlock GetBlock(String id)
+    {   
+        long cubeId = 0L;
+        try
+        {
+            cubeId = Int64.Parse(id);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
+        if(block == null || block.CubeGrid.EntityId != EntityId) {
+            Echo("Dont found:" + cubeId.ToString() + " on " + EntityId.ToString());
+            return null;
+        }
+
+        return block;
+    }
+
+    public String GetId(IMyTerminalBlock block)
+    {
+        return block.EntityId.ToString();
+    }
+    
+    public void LoadConfig()
+    { 
+        String data = Me.CustomData;
+        
+        if (data.Length > 0) { 
+            String[] configs = data.Split('\n'); 
+            
+            if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
+            
+            for(int i = 1; i < configs.Length; i++) {
+                String line = configs[i]; 
+                if (line.Length > 0) {
+                    String[] parts = line.Split('=');
+                    if(parts.Length != 2) continue;
+                    ConfigValue config = Config(parts[0].Trim());
+                    config.Value = config.Value != String.Empty ? config.Value : parts[1].Trim();
+                }
+            } 
+        } 
+    } 
+
+    public void SaveConfig()
+    {
+        List<String> store = new List<String>();  
+        int i; 
+
+        for(i = 0; i < ConfigList.Count; i++) { 
+            store.Add(ConfigList[i].ToString()); 
+        } 
+        
+        Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
+    }
+}
+
+public class Transceiver {
+    
+    public String Channel;
+    protected MBOS Sys;
+
+    public String MyId { get { return Sys.EntityId.ToString(); }}
+
+    public IMyBroadcastListener BroadcastListener;
+    protected String LastSendData = "";
+    protected List<String> Traffic = new List<String>();
+
+    public Transceiver(MBOS sys, String channel = "default") {
+        Sys = sys;
+        SetChannel(channel);
+    }
+
+    public void SetChannel(String channel)
+    {
+        Channel = channel;
+
+        List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
+        Sys.IGC.GetBroadcastListeners(listeners);
+        BroadcastListener = Sys.IGC.RegisterBroadcastListener(Channel);
+        BroadcastListener.SetMessageCallback("ReadMessages");
+    }
+
+    public String ReceiveMessage()
+    {
+        if (BroadcastListener == null) return String.Empty;
+
+        while(BroadcastListener.HasPendingMessage) {
+            MyIGCMessage message = BroadcastListener.AcceptMessage();
+            String incoming = message.Data.ToString();
+
+            if (incoming == LastSendData) 
+            {
+                return String.Empty; // ignore own echoed data
+            }
+                
+            String[] stack = incoming.Trim().Split('|');
+
+            if(stack[1] != MyId) {
+                return String.Empty;
+            }
+
+            stack = stack.Skip(2).ToArray(); // remove timestamp and id
+
+            String messageText = String.Join("|", stack);
+            Traffic.Add("< " + messageText);
+
+            return messageText;
+        }
+
+        return String.Empty;
+    }
+
+    public void SendMessage(String data) 
+    {
+        String message = System.DateTime.Now.ToBinary() + "|" + MyId + "|" + data;
+        if(BroadcastListener != null) {
+            Sys.IGC.SendBroadcastMessage(Channel, message, TransmissionDistance.ConnectedConstructs);
+        }
+        LastSendData = message;
+        Traffic.Add("> " + data);
+    }
+
+    public String DebugTraffic()
+    {
+        if(Traffic.Count > 20) {
+            Traffic.RemoveRange(0, Traffic.Count - 20);
+        }
+        
+        String output = "";
+
+        int i;
+        for(i=Traffic.Count - 1; i >= 0; i--) {
+            output += Traffic[i]+"\n";
+        }
+
+        return output;
+    }
+}
+
+public class Batteries {
+    protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();
+    
+    public Batteries(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
+        BatteryList.Clear();
+        gridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(BatteryList, (IMyBatteryBlock block) => block.CubeGrid.EntityId == gridId);
+    }
+
+    public void SetReacharge() 
+    {
+        foreach(IMyBatteryBlock battery in BatteryList) {
+            battery.ChargeMode = ChargeMode.Recharge;
+        }
+    }
+
+    public void SetAuto() 
+    {
+        foreach(IMyBatteryBlock battery in BatteryList) {
+            battery.ChargeMode = ChargeMode.Auto;
+        }
+    }
+}
+
+public class Lights {
+    protected List<IMyLightingBlock> LightList = new List<IMyLightingBlock>();
+    
+    public Lights(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
+        LightList.Clear();
+        gridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(LightList, (IMyLightingBlock block) => block.CubeGrid.EntityId == gridId);
+    }
+
+    public void TurnOn() 
+    {
+        foreach(IMyLightingBlock light in LightList) {
+            light.Enabled = true;
+        }
+    }
+
+    public void TurnOff() 
+    {
+        foreach(IMyLightingBlock light in LightList) {
+            light.Enabled = false;
+        }
     }
 }
