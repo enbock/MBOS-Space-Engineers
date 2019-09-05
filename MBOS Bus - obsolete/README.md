@@ -1,4 +1,10 @@
-# MBOS Bus
+# MBOS Bus - Replace by IGC 
+
+The Inter Grid Communication System of the Game replaced the idea of a bus 
+handler completelly.
+
+
+
 The message bus module.
 
 The bus allows to register a module for a special event. Once the event was

@@ -1,10 +1,13 @@
-# MBOS Core
+# MBOS Core - Replace by IGC 
+
+The Inter Grid Communication System of the Game replaced the idea of a bus 
+handler completelly.
+
+
 The core module which handles the execution rythm and stores the configuration.
 
 ## Installation
 ## Requirements
-* Timer Block
- * Setup Programmable Block with `run` action and **empty** argument.
 * Display Block (optional since v2.0)
 
 ## Configuration

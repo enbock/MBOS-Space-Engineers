@@ -54,7 +54,7 @@ public class TransportDrone
 
     public IMyRemoteControl RemoteControl;
     protected IMyGridTerminalSystem GridTerminalSystem;
-    public Transceiver Transceiver;
+    public MBOS.ConnectedGridTransceiver Transceiver;
     public Batteries Batteries;
     public Lights Lights;
     public IMyShipConnector Connector;
@@ -69,21 +69,18 @@ public class TransportDrone
 
     public TransportDrone(
         IMyRemoteControl remoteControl, 
-        IMyGridTerminalSystem gridTerminalSystem,
-        Transceiver transceiver, 
+        MBOS sys,
         Batteries batteries, 
         Lights lights,
         IMyShipConnector connector
     )
     {
         RemoteControl = remoteControl;
-        GridTerminalSystem = gridTerminalSystem;
-        Transceiver = transceiver;
+        GridTerminalSystem = sys.GridTerminalSystem;
+        Transceiver = sys.Transceiver;
         Batteries = batteries;
         Lights = lights;
         Connector = connector;
-
-        Dock();
     }
 
     public void Run() 
@@ -233,7 +230,7 @@ public class TransportDrone
         RemoteControl.SetAutoPilotEnabled(true);
     }
 
-    protected void Dock() 
+    public void Dock() 
     {
         Mode = "Dock";
         RemoteControl.FlightMode = FlightMode.OneWay;
@@ -314,14 +311,15 @@ public void InitProgram()
 
     Drone = new TransportDrone(
         remoteControl, 
-        GridTerminalSystem,
-        new Transceiver(Sys, channel),
+        Sys,
         new Batteries(GridTerminalSystem, Me.CubeGrid.EntityId),
         new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
         cargoConnector
     );
 
     Drone.FlightPaths.Clear();
+    Drone.Dock();
+
     List<String> pathList = new List<String>(Sys.Config("Paths").Value.Split('*'));
     foreach(String pathData in pathList) {
         if (pathData == String.Empty) continue;
@@ -394,8 +392,8 @@ public void UpdateInfo()
         + "Next Target: " + Drone.Target.ToString() + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        + "Traffic (channel:'" + Drone.Transceiver.Channel +"' id:'" + Drone.Transceiver.MyId + "'):\n\n"
-        + Drone.Transceiver.DebugTraffic()
+        + "Traffic (channel:'" + Sys.Transceiver.Channel +"' id:'" + Sys.Transceiver.MyId + "'):\n\n"
+        + Sys.Transceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
 }
@@ -491,6 +489,7 @@ public class MBOS {
     public IMyGridTerminalSystem GridTerminalSystem;
     public IMyIntergridCommunicationSystem IGC;
     public Action<string> Echo;
+    public UniTransceiver Transceiver;
 
     public long EntityId { get { return Me.CubeGrid.EntityId; }}
 
@@ -509,6 +508,7 @@ public class MBOS {
         ComputerDisplay.ChangeInterval = 0;
 
         MBOS.Sys = this;
+        Transceiver = new UniTransceiver(this);
     }
 
     public ConfigValue Config(String key) {
@@ -578,90 +578,56 @@ public class MBOS {
         
         Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
     }
-}
 
-public class Transceiver {
-    
-    public String Channel;
-    protected MBOS Sys;
-
-    public String MyId { get { return Sys.EntityId.ToString(); }}
-
-    public IMyBroadcastListener BroadcastListener;
-    protected String LastSendData = "";
-    protected List<String> Traffic = new List<String>();
-
-    public Transceiver(MBOS sys, String channel = "default") {
-        Sys = sys;
-        SetChannel(channel);
-    }
-
-    public void SetChannel(String channel)
+    public class UniTransceiver
     {
-        Channel = channel;
+        protected IMyUnicastListener Listener;
+        protected MBOS Sys;
+        protected List<String> Traffic = new List<String>();
 
-        List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
-        Sys.IGC.GetBroadcastListeners(listeners);
-        BroadcastListener = Sys.IGC.RegisterBroadcastListener(Channel);
-        BroadcastListener.SetMessageCallback("ReadMessages");
-    }
-
-    public String ReceiveMessage()
-    {
-        if (BroadcastListener == null) return String.Empty;
-
-        while(BroadcastListener.HasPendingMessage) {
-            MyIGCMessage message = BroadcastListener.AcceptMessage();
-            String incoming = message.Data.ToString();
-
-            if (incoming == LastSendData) 
-            {
-                return String.Empty; // ignore own echoed data
-            }
-                
-            String[] stack = incoming.Trim().Split('|');
-
-            if(stack[1] != MyId) {
-                return String.Empty;
-            }
-
-            stack = stack.Skip(2).ToArray(); // remove timestamp and id
-
-            String messageText = String.Join("|", stack);
-            Traffic.Add("< " + messageText);
-
-            return messageText;
+        public UniTransceiver(MBOS sys)
+        {
+            Sys = sys;
+            Listener = Sys.IGC.UnicastListener;
+            Listener.SetMessageCallback("GetUniMessage");
         }
 
-        return String.Empty;
-    }
+        public String ReceiveMessage()
+        { 
+            if (!Listener.HasPendingMessage) return String.Empty;
 
-    public void SendMessage(String data) 
-    {
-        String message = System.DateTime.Now.ToBinary() + "|" + MyId + "|" + data;
-        if(BroadcastListener != null) {
-            Sys.IGC.SendBroadcastMessage(Channel, message, TransmissionDistance.ConnectedConstructs);
+            MyIGCMessage message = Listener.AcceptMessage();
+            String incoming = message.As<String>();
+            
+            Traffic.Add("< " + incoming);
+
+            return incoming;
         }
-        LastSendData = message;
-        Traffic.Add("> " + data);
-    }
 
-    public String DebugTraffic()
-    {
-        if(Traffic.Count > 20) {
-            Traffic.RemoveRange(0, Traffic.Count - 20);
+        public void SendMessage(long target, String data) 
+        {
+            Traffic.Add("> " + data);
+            Sys.IGC.SendUnicastMessage<String>(target, "whisper", data);
         }
         
-        String output = "";
+        public String DebugTraffic()
+        {
+            if(Traffic.Count > 20) {
+                Traffic.RemoveRange(0, Traffic.Count - 20);
+            }
+            
+            String output = "";
 
-        int i;
-        for(i=Traffic.Count - 1; i >= 0; i--) {
-            output += Traffic[i]+"\n";
+            int i;
+            for(i=Traffic.Count - 1; i >= 0; i--) {
+                output += Traffic[i]+"\n";
+            }
+
+            return output;
         }
-
-        return output;
     }
 }
+
 
 public class Batteries {
     protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();
