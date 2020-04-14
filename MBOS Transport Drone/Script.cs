@@ -54,7 +54,7 @@ public class TransportDrone
 
     public IMyRemoteControl RemoteControl;
     protected IMyGridTerminalSystem GridTerminalSystem;
-    public MBOS.ConnectedGridTransceiver Transceiver;
+    public MBOS.UniTransceiver Transceiver;
     public Batteries Batteries;
     public Lights Lights;
     public IMyShipConnector Connector;
@@ -272,7 +272,7 @@ public void Save()
 {
     if(Drone != null) {
         Sys.Config("RemoteControl").Block = Drone.RemoteControl;
-        Sys.Config("Channel").Value = Drone.Transceiver.Channel;
+        //Sys.Config("Channel").Value = Drone.Transceiver.Channel;
         Sys.Config("Mode").Value = Drone.Mode;
 
         List<String> pathConfig = new List<String>();
@@ -392,7 +392,7 @@ public void UpdateInfo()
         + "Next Target: " + Drone.Target.ToString() + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        + "Traffic (channel:'" + Sys.Transceiver.Channel +"' id:'" + Sys.Transceiver.MyId + "'):\n\n"
+        //+ "Traffic (channel:'" + Sys.Transceiver.Channel +"' id:'" + Sys.Transceiver.MyId + "'):\n\n"
         + Sys.Transceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
@@ -410,17 +410,22 @@ public void ReadArgument(String args)
     switch (command) {
         case "SetRemoteControl":
             block = GridTerminalSystem.GetBlockWithName(allArgs);
-            if (Drone != null && block != null) {
+            if (block == null) {
+                Echo("RemoteControl '" + allArgs + "' not found.");
+                break;
+            }
+            if (Drone != null) {
                 Drone.RemoteControl = block as IMyRemoteControl;
             } else {
                 Sys.Config("RemoteControl").Block = block;
+                InitProgram();
             }
             Echo("RemoteControl '" + allArgs + "' configured.");
             break;
 
         case "SetChannel":
             if (Drone != null) {
-                Drone.Transceiver.SetChannel(allArgs);
+                //Drone.Transceiver.SetChannel(allArgs);
             } else {
                 Sys.Config("Channel").Value = allArgs;
             }
@@ -432,11 +437,15 @@ public void ReadArgument(String args)
             break;
 
         case "Demo":
+            if (Drone == null) {
+                Echo("Not initialized");
+                break;
+            }
             Drone.FlightPaths.Clear();
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #1:48066.95:30412.84:23038.05:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #3:48192.22:30520.91:22778.19:");
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #3:48192.22:30520.91:22778.19:GPS:Gandur #4:48040.41:30641.55:22847.58:>GPS:Gandur #5:47962.97:30626.48:22888.47:");
             Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #4:48040.41:30641.55:22847.58:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #1:48066.95:30412.84:23038.05:>GPS:Gandur #6:48061.14:30392.56:23044.62:");
-            //Drone.ExecuteMessage("Start");
+            Drone.ExecuteMessage("Start");
             break;
 
         default:
@@ -459,9 +468,7 @@ public class MBOS {
         }
 
         public IMyTerminalBlock Block {
-            get { 
-                return Sys.GetBlock(_value);
-            }
+            get { return Sys.GetBlock(_value); }
             set { _value = value == null ? "" : Sys.GetId(value); }
         }
 
@@ -495,6 +502,8 @@ public class MBOS {
 
     public List<ConfigValue> ConfigList = new List<ConfigValue>();
     public IMyTextSurface ComputerDisplay;
+
+    protected bool ConfigLoaded = false;
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
@@ -548,6 +557,8 @@ public class MBOS {
     
     public void LoadConfig()
     { 
+        if(ConfigLoaded) return;
+        ConfigLoaded = true;
         String data = Me.CustomData;
         
         if (data.Length > 0) { 
@@ -589,7 +600,7 @@ public class MBOS {
         {
             Sys = sys;
             Listener = Sys.IGC.UnicastListener;
-            Listener.SetMessageCallback("GetUniMessage");
+            //Listener.SetMessageCallback("GetUniMessage");
         }
 
         public String ReceiveMessage()
