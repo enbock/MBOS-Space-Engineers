@@ -4,6 +4,15 @@ Space Engineers: Message Bus Operating System
 A modularized message controlled system through multiple programable blocks. 
 http://steamcommunity.com/workshop/filedetails/?id=686991041
 
+## History
+While to creation of the modules code over the years, Space Engineers began to provide similar functionality.      
+The **Message Bus** was now integrate as `IGC` (Inter Grid Communication). So is it comming, that the `Bus` module is not needed anymore.     
+Also the integration of the `CustomData` made the `Core` module obsolete. The integration of the LCD display in the
+`Programmable Block` made the usage of a LCD-Panel obsolate.
+
+Currently(2020) the modules now more independend (like mirco service architecture), but a small MBOS-Framework is crystalized, the is
+copied from module to module. Be aware, that "older" modules has possibly also an older MBOS system class inside.
+
 ## Idea 
 The programmable block are very limtied for complex system, e.g. automatic navigation and cargo loading systems. 
 The MBOS allows to develop multiple small modules which interacts together through a message bus. 
@@ -15,45 +24,39 @@ http://steamcommunity.com/workshop/filedetails/?id=535981104
 The system used MBOS as prefix. Anyone in the workshop are welcome to add modules.   
 
 ### Methodology
-The `Core` module is the central interaction program. That handles the concurrency calls between
-the modules and synchronize it. That is needed, because in one frame can a 
-script(programable block) only run one time. Multiple calls seems be ignored by the engine.
+Each Module represent one resposibility.
 
-The second element build the `Bus` module. That allows to send events across the module collection.
+The IGC is used as data **bus** to transport message between multiple modules.    
+The architecture of the antenna network define the size and domain of a MBOS network.
 
-To add a call to the call list, the LCD panel of the `Core` is in use. Here is a config line with
-the next calls. Each module can simple add more call here and the `Core` execute it when possible.
+The LCD Display of the `Programmable Block` will be used for status info.     
+The `CustomData` contains the config data of the module.
 
 Here a short ACSII art as overview:
 ```
 Example: Module 2 send data to Module 1.
 
-  +---------------+         +------+
-  | LCD as Config | <-----> | Core | ----------------------------------+
-  +---------------+         +------+                                   |
-         ^                                                             |
-         |                                                 4. Execute with event data
-3. Add call for Module 1                                               |
-         |                                                             v
-         |                 +------+                              +----------+
-         +---------------- | Bus  | <--- 1. Register event ----  | Module 1 |
-                           +------+                              +----------+
-                              ^            
-                              |                                  +----------+
-                              +-- 2. Dispatch event with data -- | Module 2 |
-                                                                 +----------+
+                                   +----------------+
+                                   | SE Game Engine | -----------------+
+                                   +----------------+                  |
+                                                                       |
+                                                             Execute with time event
+                                                                       |
+                                                                       v
+                           +------+                              +----------+       +----------------------+
+                           | IGC  | <------ 1. Send data ------  | Module 1 | <---> | CustonData as Config | 
+                           +------+                              +----------+       +----------------------+
+                              |            
+                              |                                  +----------+       +----------------------+
+                              +-------- 2.Receive data --------> | Module 2 | <---> | CustonData as Config | 
+                                                                 +----------+       +----------------------+
 ```
 
-Modules should use primary events to communicate.    
-If a module is needed to observe automatically, then it should register on the `Core`. The 
-`Core` triggers a special event to each registed module on each iteration.
-
 ### Starting a new module
-The start of a module could a bit complicated, if we start from scratch. The `Module Template`
-has some code for a start. Just duplicate that module and start to fill with new functionaly.
+The start of a module could a bit complicated, may just take the latest modified module, remove all special classes and reuse
+the SE functions and the MBOS class.
 
-Also feel free to check the other modules in this repository and take some code from there to
-build your own module more easy.
+The MBOS class contains functionality to save, load and read/write config entries for `String` and `Block`.
 
 ## Add-Ons 
 The MBOS will work on full vanilla and don't need any Add-Ons or extensions in Space Engineers.
