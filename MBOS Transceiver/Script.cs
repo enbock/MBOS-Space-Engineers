@@ -2,34 +2,7 @@ const String NAME = "Transceiver";
 const String VERSION = "2.0.0";
 const String DATA_FORMAT = "2";
 
-public class WorldTransceiver : MBOS.GridTransceiver {
-    protected bool CanInit = false;
-
-    public WorldTransceiver(MBOS sys, String channel = "world") : base(sys)
-    {
-        Channel = channel;
-
-        CanInit = true;
-        ListenerAware();
-    }
-
-    protected new void ListenerAware()
-    {
-        if(!CanInit) return;
-        //List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
-        //Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && IsActive);
-
-        if (BroadcastListener != null) {
-            Sys.IGC.DisableBroadcastListener(BroadcastListener);
-        }
-
-        BroadcastListener = Sys.IGC.RegisterBroadcastListener(Channel);
-        BroadcastListener.SetMessageCallback("GetWorldMessage");
-    }
-}
-
 MBOS Sys;
-WorldTransceiver Transceiver;
 
 public void Save()
 {   
@@ -39,7 +12,6 @@ public void Save()
 public Program()
 {
     Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
-    Transceiver = new WorldTransceiver(Sys, Sys.Config("channel").ValueWithDefault("world"));
     Runtime.UpdateFrequency = UpdateFrequency.None;
 
     Main("", UpdateType.Once);
@@ -53,8 +25,11 @@ public void Main(String argument, UpdateType updateSource)
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
-        + "Traffic (Channel: '" + Transceiver.Channel + "'):\n"
-        + Transceiver.DebugTraffic()
+        + "Grud: " + Sys.GridId + "\n"
+        + "Me: " + Sys.EntityId + "\n"
+        + "Traffic (Channel: '" + Sys.BroadCastTransceiver.Channel + "'):\n"
+        + Sys.BroadCastTransceiver.DebugTraffic()
+        + Sys.Transceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
 }
@@ -67,28 +42,22 @@ public void ReadArgument(String args)
     String command = parts[0].Trim();
     parts.RemoveAt(0);
     switch (command) {
-        case "SetChannel":
-            //SetChannel(parts[0]);
-            Echo("Channel changed.");
-            break;
         case "SendMessage":
-            //SendMessage(String.Join(" ", parts.ToArray()));
+            Sys.BroadCastTransceiver.SendMessage(String.Join(" ", parts.ToArray()));
             Echo("Message sent.");
             break;
         case "SendDirectMessage":
-            //SendDirectMessage(parts);
+            long receiver = long.Parse(parts[0]);
+            parts.RemoveAt(0);
+            Sys.Transceiver.SendMessage(receiver, String.Join(" ", parts.ToArray()));
             Echo("Direct Message sent.");
             break;
         case "GetBroadcaseMessage":
-            Sys.Transceiver.ReceiveMessage();
-            Echo("Grid Message received.");
-            break;
-        case "GetWorldMessage":
-            Transceiver.ReceiveMessage();
+            Sys.BroadCastTransceiver.ReceiveMessage();
             Echo("World Message received.");
             break;
         case "GetUniMessage":
-            Sys.DirectTranceiver.ReceiveMessage();
+            Sys.Transceiver.ReceiveMessage();
             Echo("Direct Message received.");
             break;
         default:
@@ -143,10 +112,11 @@ public class MBOS {
     public IMyGridTerminalSystem GridTerminalSystem;
     public IMyIntergridCommunicationSystem IGC;
     public Action<string> Echo;
-    public GridTransceiver Transceiver;
-    public UniTransceiver DirectTranceiver;
+    public WorldTransceiver BroadCastTransceiver;
+    public UniTransceiver Transceiver;
 
-    public long EntityId { get { return Me.CubeGrid.EntityId; }}
+    public long GridId { get { return Me.CubeGrid.EntityId; }}
+    public long EntityId { get { return Me.EntityId; }}
 
     public List<ConfigValue> ConfigList = new List<ConfigValue>();
     public IMyTextSurface ComputerDisplay;
@@ -163,8 +133,8 @@ public class MBOS {
         ComputerDisplay.ChangeInterval = 0;
 
         MBOS.Sys = this;
-        Transceiver = new GridTransceiver(this);
-        DirectTranceiver = new UniTransceiver(this);
+        BroadCastTransceiver = new WorldTransceiver(this);
+        Transceiver = new UniTransceiver(this);
     }
 
     public ConfigValue Config(String key) {
@@ -235,34 +205,33 @@ public class MBOS {
         Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
     }
 
-    public class GridTransceiver {
+    public class WorldTransceiver {
         
         public String Channel;
         public IMyBroadcastListener BroadcastListener;
-        public String MyId { get { return Sys.EntityId.ToString(); }}
 
         protected MBOS Sys;
-        protected TransmissionDistance Range = TransmissionDistance.CurrentConstruct;
+        protected TransmissionDistance Range = TransmissionDistance.AntennaRelay;
         protected String LastSendData = "";
         protected List<String> Traffic = new List<String>();
 
-        public GridTransceiver(MBOS sys) {
+        public WorldTransceiver(MBOS sys) {
             Sys = sys;
-            Channel = "Grid#" + MyId;
+            Channel = "world";
 
             ListenerAware();
         }
 
         protected void ListenerAware()
         {
-            //List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
-            //Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && IsActive);
+            List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
+            Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && listener.IsActive);
 
-            if (BroadcastListener != null) {
-                Sys.IGC.DisableBroadcastListener(BroadcastListener);
-            }
+            //if (BroadcastListener != null) {
+            //    Sys.IGC.DisableBroadcastListener(BroadcastListener);
+            //}
 
-            BroadcastListener = Sys.IGC.RegisterBroadcastListener(Channel);
+            BroadcastListener = listeners.Count > 0 ? listeners[0] : Sys.IGC.RegisterBroadcastListener(Channel);
             BroadcastListener.SetMessageCallback("GetBroadcaseMessage");
         }
 
@@ -317,6 +286,7 @@ public class MBOS {
     {
         protected IMyUnicastListener Listener;
         protected MBOS Sys;
+        protected List<String> Traffic = new List<String>();
 
         public UniTransceiver(MBOS sys)
         {
@@ -333,12 +303,31 @@ public class MBOS {
             MyIGCMessage message = Listener.AcceptMessage();
             String incoming = message.As<String>();
 
+            Traffic.Add("< " + incoming);
+
             return incoming;
         }
 
         public void SendMessage(long target, String data) 
         {
+            Traffic.Add("> " + data);
             Sys.IGC.SendUnicastMessage<string>(target, "whisper", data);
+        }
+        
+        public String DebugTraffic()
+        {
+            if(Traffic.Count > 20) {
+                Traffic.RemoveRange(0, Traffic.Count - 20);
+            }
+            
+            String output = "";
+
+            int i;
+            for(i=Traffic.Count - 1; i >= 0; i--) {
+                output += Traffic[i]+"\n";
+            }
+
+            return output;
         }
     }
 }

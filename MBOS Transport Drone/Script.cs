@@ -54,7 +54,7 @@ public class TransportDrone
 
     public IMyRemoteControl RemoteControl;
     protected IMyGridTerminalSystem GridTerminalSystem;
-    public MBOS.UniTransceiver Transceiver;
+    public MBOS Sys;
     public Batteries Batteries;
     public Lights Lights;
     public IMyShipConnector Connector;
@@ -64,6 +64,8 @@ public class TransportDrone
     public Vector3D StartPoint = Vector3D.Zero;
     public FlightPath CurrentPath = new FlightPath();
     public double Distance = 0.0;
+    public String Hangar = String.Empty;
+    public String Homepath = String.Empty;
 
     protected DateTime Mark = DateTime.Now;
 
@@ -77,17 +79,23 @@ public class TransportDrone
     {
         RemoteControl = remoteControl;
         GridTerminalSystem = sys.GridTerminalSystem;
-        Transceiver = sys.Transceiver;
         Batteries = batteries;
         Lights = lights;
         Connector = connector;
+        Sys = sys;
+
+        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString());
     }
 
     public void Run() 
     {
-        String receivedMessage = Transceiver.ReceiveMessage();
-
-        if(receivedMessage != String.Empty) ExecuteMessage(receivedMessage);
+        String receivedMessage;
+        while((receivedMessage = Sys.BroadCastTransceiver.ReceiveMessage()) != String.Empty) {
+            ExecuteMessage(receivedMessage);
+        }
+        while((receivedMessage = Sys.Transceiver.ReceiveMessage()) != String.Empty) {
+            ExecuteMessage(receivedMessage);
+        }
 
         CheckFlight();
     }
@@ -99,14 +107,19 @@ public class TransportDrone
         stack.RemoveAt(0);
 
         switch(command) {
-            case "AddFlightPath": 
-                Lights.TurnOn();
+            case "AddFlightPath":
                 AddFlightPath(stack[0]);
                 break;
             case "Start":
-                Lights.TurnOn();
-                Mark = DateTime.Now.AddSeconds(5);
-                Mode = "Mark";
+                Start();
+                break;
+            case "DroneHangarHasPodsAvailable":
+                if(Hangar == String.Empty) BroadCastHomeRequest(long.Parse(stack[0]));
+                break;
+            case "DroneRegisteredAt":
+                RegisterHangar(stack[0], stack[1]);
+                AddFlightPath(stack[1]);
+                Start();
                 break;
         }
     }
@@ -118,6 +131,23 @@ public class TransportDrone
         if (path.Waypoints.Count > 0) {
             FlightPaths.Add(path);
         }
+    }
+    protected void BroadCastHomeRequest(long receiver)
+    {
+        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString());
+    }
+
+    protected void RegisterHangar(String hangar, String homepath)
+    {
+        Hangar = hangar;
+        Homepath = homepath;
+    }
+
+    protected void Start() 
+    {
+        Lights.TurnOn();
+        Mark = DateTime.Now.AddSeconds(5);
+        Mode = "Mark";
     }
 
     protected void StartFlight() 
@@ -362,7 +392,7 @@ public IMyShipConnector FindConnector()
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
     GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
         connectors, 
-        (IMyShipConnector connector) => connector.CubeGrid.EntityId == Me.CubeGrid.EntityId && connector.CustomData.Trim() == "Cargo"
+        (IMyShipConnector connector) => connector.CubeGrid.EntityId == Sys.GridId && connector.CustomData.Trim() == "Cargo"
     );
 
     if (connectors.Count > 0) {
@@ -387,13 +417,16 @@ public void UpdateInfo()
         + "\n"
         + "RemoteControl: " + Drone.RemoteControl.CustomName + "\n"
         + "Connector: " + (Drone.Connector != null ? Drone.Connector.CustomName : "not found") + "\n"
+        + "Home:" + Drone.Hangar + "\n"
         + "Mode: " + Drone.Mode + "\n"
         + "CurrentPath: " + currentPath + "\n"
         + "Next Target: " + Drone.Target.ToString() + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        //+ "Traffic (channel:'" + Sys.Transceiver.Channel +"' id:'" + Sys.Transceiver.MyId + "'):\n\n"
+        + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
+        + "----------------------------------------\n"
+        + Sys.BroadCastTransceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
 }
@@ -432,8 +465,9 @@ public void ReadArgument(String args)
             Echo("Transceiver Channel " + allArgs + "configured.");
             break;
 
-        case "ReadMessages":
+        case "ReceiveMessage":
             Echo("Received radio data.");
+            Drone.Run();
             break;
 
         case "Demo":
@@ -455,8 +489,6 @@ public void ReadArgument(String args)
 }
 
 public class MBOS {
-    public static MBOS Sys;
-    
     public class ConfigValue
     { 
         public String Key; 
@@ -489,6 +521,7 @@ public class MBOS {
         } 
     }
 
+    public static MBOS Sys;
     public String Name = "Module";
     public String Version = "0.0.0";
     public String DataFormat = "0";
@@ -497,8 +530,10 @@ public class MBOS {
     public IMyIntergridCommunicationSystem IGC;
     public Action<string> Echo;
     public UniTransceiver Transceiver;
+    public WorldTransceiver BroadCastTransceiver;
 
-    public long EntityId { get { return Me.CubeGrid.EntityId; }}
+    public long GridId { get { return Me.CubeGrid.EntityId; }}
+    public long EntityId { get { return Me.EntityId; }}
 
     public List<ConfigValue> ConfigList = new List<ConfigValue>();
     public IMyTextSurface ComputerDisplay;
@@ -518,6 +553,7 @@ public class MBOS {
 
         MBOS.Sys = this;
         Transceiver = new UniTransceiver(this);
+        BroadCastTransceiver = new WorldTransceiver(this);
     }
 
     public ConfigValue Config(String key) {
@@ -542,8 +578,8 @@ public class MBOS {
         }
 
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
-        if(block == null || block.CubeGrid.EntityId != EntityId) {
-            Echo("Dont found:" + cubeId.ToString() + " on " + EntityId.ToString());
+        if(block == null || block.CubeGrid.EntityId != GridId) {
+            Echo("Dont found:" + cubeId.ToString() + " on " + GridId.ToString());
             return null;
         }
 
@@ -590,6 +626,83 @@ public class MBOS {
         Me.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
     }
 
+    public class WorldTransceiver {
+        
+        public String Channel;
+        public IMyBroadcastListener BroadcastListener;
+
+        protected MBOS Sys;
+        protected TransmissionDistance Range = TransmissionDistance.AntennaRelay;
+        protected String LastSendData = "";
+        protected List<String> Traffic = new List<String>();
+
+        public WorldTransceiver(MBOS sys) {
+            Sys = sys;
+            Channel = "world";
+
+            ListenerAware();
+        }
+
+        protected void ListenerAware()
+        {
+            List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
+            Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && listener.IsActive);
+
+            //if (BroadcastListener != null) {
+            //    Sys.IGC.DisableBroadcastListener(BroadcastListener);
+            //}
+
+            BroadcastListener = listeners.Count > 0 ? listeners[0] : Sys.IGC.RegisterBroadcastListener(Channel);
+            BroadcastListener.SetMessageCallback("ReceiveMessage");
+        }
+
+        public String ReceiveMessage()
+        { 
+            if (!BroadcastListener.HasPendingMessage) return String.Empty;
+
+            MyIGCMessage message = BroadcastListener.AcceptMessage();
+            String incoming = message.As<String>();
+
+            if (incoming == LastSendData) 
+            {
+                return String.Empty; // ignore own echoed data
+            }
+                
+            String[] stack = incoming.Trim().Split('|');
+
+            stack = stack.Skip(1).ToArray(); // remove timestamp
+
+            String messageText = String.Join("|", stack);
+            Traffic.Add("< " + messageText);
+
+            return messageText;
+        }
+
+        public void SendMessage(String data) 
+        {
+            String message = DateTime.Now.ToBinary() + "|" + data;
+            Sys.IGC.SendBroadcastMessage<String>(Channel, message, Range);
+            LastSendData = message;
+            Traffic.Add("> " + data);
+        }
+
+        public String DebugTraffic()
+        {
+            if(Traffic.Count > 20) {
+                Traffic.RemoveRange(0, Traffic.Count - 20);
+            }
+            
+            String output = "";
+
+            int i;
+            for(i=Traffic.Count - 1; i >= 0; i--) {
+                output += Traffic[i]+"\n";
+            }
+
+            return output;
+        }
+    }
+
     public class UniTransceiver
     {
         protected IMyUnicastListener Listener;
@@ -600,8 +713,9 @@ public class MBOS {
         {
             Sys = sys;
             Listener = Sys.IGC.UnicastListener;
-            //Listener.SetMessageCallback("GetUniMessage");
+            Listener.SetMessageCallback("ReceiveMessage");
         }
+        
 
         public String ReceiveMessage()
         { 
@@ -609,7 +723,7 @@ public class MBOS {
 
             MyIGCMessage message = Listener.AcceptMessage();
             String incoming = message.As<String>();
-            
+
             Traffic.Add("< " + incoming);
 
             return incoming;
@@ -618,7 +732,7 @@ public class MBOS {
         public void SendMessage(long target, String data) 
         {
             Traffic.Add("> " + data);
-            Sys.IGC.SendUnicastMessage<String>(target, "whisper", data);
+            Sys.IGC.SendUnicastMessage<string>(target, "whisper", data);
         }
         
         public String DebugTraffic()

@@ -34,7 +34,7 @@ The `CustomData` contains the config data of the module.
 
 Here a short ACSII art as overview:
 ```
-Example: Module 2 send data to Module 1.
+Example: Module 1 send data to Module 2.
 
                                    +----------------+
                                    | SE Game Engine | -----------------+
@@ -44,7 +44,7 @@ Example: Module 2 send data to Module 1.
                                                                        |
                                                                        v
                            +------+                              +----------+       +----------------------+
-                           | IGC  | <------ 1. Send data ------  | Module 1 | <---> | CustonData as Config | 
+                           | IGC  | <------ 1. Send data ------- | Module 1 | <---> | CustonData as Config | 
                            +------+                              +----------+       +----------------------+
                               |            
                               |                                  +----------+       +----------------------+
