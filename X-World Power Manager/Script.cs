@@ -1,116 +1,7 @@
-const String NAME = "Drone Hangar";
+const String NAME = "Power Manager";
 const String VERSION = "1.0.0";
 const String DATA_FORMAT = "1.0";
 
-/**
-
-Drone Hangar Manager.
-
-* Connectors must be named with "Pod".
-
-*/
-
-public class DroneHangar
-{
-    public class Pod {
-        public IMyShipConnector Connector;
-        public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
-        public long Drone = 0L;
-
-        public Pod(IMyShipConnector connector) {
-            Connector = connector;
-
-            LoadConfig();
-            SaveConfig(); // init
-        }
-
-        protected void LoadConfig() {
-            MBOS.Sys.LoadConfig(Connector.CustomData, ConfigList);
-            String drone = MBOS.Sys.Config("Drone", ConfigList).Value;
-            Drone = drone == String.Empty ? 0L : long.Parse(drone);
-        }
-
-        public void SaveConfig() {
-            MBOS.Sys.Config("Drone", ConfigList).Value = Drone.ToString();
-            MBOS.Sys.SaveConfig(Connector, ConfigList);
-        }
-
-    }
-
-    public List<Pod> Pods = new List<Pod>();
-    public MyWaypointInfo FlightInPoint = MyWaypointInfo.Empty;
-
-    public DroneHangar(String flightInPoint) {
-        MBOS.ParseGPS(flightInPoint, out FlightInPoint);
-        FindPods();
-        BroadCastEmptySlots();
-    }
-
-    public void ExecuteMessage(String message) {
-        List<String> parts = new List<String>(message.Split('|'));
-        String command = parts[0];
-        parts.RemoveAt(0);
-
-        switch(command) {
-            case "DroneNeedHome":
-                RegisterDrone(long.Parse(parts[0]));
-                break;
-        }
-    }
-
-    protected void FindPods() {
-        Pods.Clear();
-        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
-        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
-            connectors, 
-            (IMyShipConnector connector) => connector.CubeGrid.EntityId == MBOS.Sys.GridId && connector.CustomName.ToLower().IndexOf("pod") > -1
-        );
-
-        MBOS.Sys.Echo("Found "+connectors.Count.ToString()+" connectors");
-
-        foreach(IMyShipConnector connector in connectors) {
-            Pods.Add(new Pod(connector));
-        }
-    }
-
-    protected void BroadCastEmptySlots() {
-        List<Pod> emptyPods = Pods.FindAll((Pod pod) => pod.Drone == 0L);
-
-        MBOS.Sys.Echo("Having " + emptyPods.Count.ToString() + " free pods.");
-
-        if(emptyPods.Count > 0) {
-            MBOS.Sys.BroadCastTransceiver.SendMessage("DroneHangarHasPodsAvailable|" + MBOS.Sys.EntityId);
-        }
-
-    }
-
-    protected void RegisterDrone(long drone) {
-        List<Pod> knownDrones = Pods.FindAll((Pod pod) => pod.Drone == drone);
-        foreach(Pod pod in knownDrones) {
-            pod.Drone = 0L;
-        }
-        List<Pod> emptyPods = Pods.FindAll((Pod pod) => pod.Drone == 0L);
-
-        if (emptyPods.Count == 0) {
-            MBOS.Sys.Echo("No pod for " + drone.ToString() + " available.");
-        }
-        Pod registeredPod = emptyPods[0];
-        registeredPod.Drone = drone;
-        registeredPod.SaveConfig();
-
-        Vector3D dockAt = registeredPod.Connector.CubeGrid.GridIntegerToWorld(registeredPod.Connector.Position);
-        MBOS.Sys.Transceiver.SendMessage(
-            registeredPod.Drone, 
-            "DroneRegisteredAt|" + MBOS.Sys.EntityId.ToString()
-            + "|" + FlightInPoint.ToString()
-            + ">" + (new MyWaypointInfo("Dock At", dockAt)).ToString()
-        );
-
-        MBOS.Sys.Echo("Drone " + drone.ToString() + " registered.");
-    }
-}
-
-DroneHangar Hangar;
 MBOS Sys;
 
 public Program()
@@ -122,7 +13,11 @@ public Program()
 }
 
 public void Save()
-{   
+{
+    //if(Hangar != null) {
+        //Sys.Config("RemoteControl").Block = Drone.RemoteControl;
+    //}
+    
     Sys.SaveConfig();
 }
 
@@ -130,6 +25,7 @@ public void InitProgram()
 {
     Sys.LoadConfig();
 
+    /*
     String waypoint = Sys.Config("FlightInPoint").Value;
 
     if (waypoint == String.Empty) {
@@ -138,8 +34,9 @@ public void InitProgram()
     }
 
     Hangar = new DroneHangar(waypoint);
+    */
 
-    Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100; //UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
@@ -148,6 +45,7 @@ public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
 
+    /*
     if (Hangar == null) {
         InitProgram();
         if (Hangar == null) { 
@@ -155,6 +53,7 @@ public void Main(String argument, UpdateType updateSource)
             return;
         }
     }
+    */
 
     Save();
     UpdateInfo();
@@ -163,12 +62,10 @@ public void Main(String argument, UpdateType updateSource)
 
 public void UpdateInfo()
 {
-    String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
+    String output = "[X-World] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
-        + "Flight in point: " + Hangar.FlightInPoint.ToString() + "\n"
-        + "Number of pods: " + Hangar.Pods.Count.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() +"\n"
         + "----------------------------------------\n"
@@ -200,10 +97,10 @@ public void ReadArgument(String args)
             Echo("Received radio data.");
             String message = string.Empty;
             while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                Hangar.ExecuteMessage(message);
+
             }
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                Hangar.ExecuteMessage(message);
+
             }
             break;
         default:
@@ -384,10 +281,6 @@ public class MBOS {
             List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
             Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && listener.IsActive);
 
-            //if (BroadcastListener != null) {
-            //    Sys.IGC.DisableBroadcastListener(BroadcastListener);
-            //}
-
             BroadcastListener = listeners.Count > 0 ? listeners[0] : Sys.IGC.RegisterBroadcastListener(Channel);
             BroadcastListener.SetMessageCallback("ReceiveMessage");
         }
@@ -486,9 +379,5 @@ public class MBOS {
 
             return output;
         }
-    }
-
-    public static bool ParseGPS(String gpsData, out MyWaypointInfo gps) {
-        return MyWaypointInfo.TryParse(gpsData, out gps);
     }
 }
