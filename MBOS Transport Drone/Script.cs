@@ -64,7 +64,7 @@ public class TransportDrone
     public Vector3D StartPoint = Vector3D.Zero;
     public FlightPath CurrentPath = new FlightPath();
     public double Distance = 0.0;
-    public String Hangar = String.Empty;
+    public long Hangar = 0L;
     public String Homepath = String.Empty;
 
     protected DateTime Mark = DateTime.Now;
@@ -74,7 +74,9 @@ public class TransportDrone
         MBOS sys,
         Batteries batteries, 
         Lights lights,
-        IMyShipConnector connector
+        IMyShipConnector connector,
+        long hangar,
+        string homepath
     )
     {
         RemoteControl = remoteControl;
@@ -83,8 +85,8 @@ public class TransportDrone
         Lights = lights;
         Connector = connector;
         Sys = sys;
-
-        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString());
+        Hangar = hangar;
+        Homepath = homepath;
     }
 
     public void Run() 
@@ -114,7 +116,7 @@ public class TransportDrone
                 Start();
                 break;
             case "DroneHangarHasPodsAvailable":
-                if(Hangar == String.Empty) BroadCastHomeRequest(long.Parse(stack[0]));
+                if(Hangar == 0L) RequestHangar(long.Parse(stack[0]));
                 break;
             case "DroneRegisteredAt":
                 RegisterHangar(stack[0], stack[1]);
@@ -132,15 +134,33 @@ public class TransportDrone
             FlightPaths.Add(path);
         }
     }
-    protected void BroadCastHomeRequest(long receiver)
+
+    public void Dock() 
     {
-        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString());
+        Mode = "Dock";
+        RemoteControl.FlightMode = FlightMode.OneWay;
+        RemoteControl.SpeedLimit = 1f;
+        RemoteControl.SetAutoPilotEnabled(false);
+        RemoteControl.SetCollisionAvoidance(true);
+        RemoteControl.SetDockingMode(true);
+        RemoteControl.ClearWaypoints();
+        Connector.Connect();
+        Mark = DateTime.Now.AddSeconds(2);
     }
 
-    protected void RegisterHangar(String hangar, String homepath)
-    {
-        Hangar = hangar;
-        Homepath = homepath;
+    public void GoHome() {
+        if(IsHomeConnected() == false) {
+            AddFlightPath(Homepath);
+            Start();
+        }
+    }
+
+    public bool IsHomeConnected() {
+        if (Connector.Status != MyShipConnectorStatus.Connected) {
+            return false;
+        }
+
+        return Connector.OtherConnector.CustomData.Contains(Sys.EntityId.ToString());
     }
 
     protected void Start() 
@@ -260,30 +280,28 @@ public class TransportDrone
         RemoteControl.SetAutoPilotEnabled(true);
     }
 
-    public void Dock() 
-    {
-        Mode = "Dock";
-        RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetAutoPilotEnabled(false);
-        RemoteControl.SetCollisionAvoidance(true);
-        RemoteControl.SetDockingMode(true);
-        RemoteControl.ClearWaypoints();
-        Connector.Connect();
-        Mark = DateTime.Now.AddSeconds(2);
-    }
-
     protected void MarkDock()
     {
         Mode = "Mark";
         Connector.Connect();
         if(Connector.Status == MyShipConnectorStatus.Connected) {
             Mark = DateTime.Now.AddSeconds(15);
-            if (Connector.OtherConnector.CubeGrid.IsStatic) {
+            if (IsHomeConnected()) {
                 Batteries.SetReacharge();
                 Lights.TurnOff();
             }
         }
+    }
+
+    protected void RequestHangar(long receiver)
+    {
+        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString());
+    }
+
+    protected void RegisterHangar(String hangar, String homepath)
+    {
+        Hangar = long.Parse(hangar);
+        Homepath = homepath;
     }
 }
 
@@ -310,6 +328,8 @@ public void Save()
             pathConfig.Add(path.ToString());
         }
         Sys.Config("Paths").Value = String.Join("*", pathConfig.ToArray());
+        Sys.Config("Hangar").Value = Drone.Hangar.ToString();
+        Sys.Config("Homepath").Value = Drone.Homepath;
     }
     
     Sys.SaveConfig();
@@ -321,7 +341,6 @@ public void InitProgram()
 
     IMyRemoteControl remoteControl = Sys.Config("RemoteControl").Block as IMyRemoteControl;
     IMyShipConnector cargoConnector = FindConnector();
-    String channel = Sys.Config("Channel").ValueWithDefault("default");
     
     Save(); // create default data
 
@@ -339,12 +358,18 @@ public void InitProgram()
         return;
     }
 
+    string hangarValue = Sys.Config("Hangar").Value;
+    long hangar = hangarValue == String.Empty ? 0L : long.Parse(hangarValue);
+    String homepath = Sys.Config("Homepath").Value;
+
     Drone = new TransportDrone(
         remoteControl, 
         Sys,
         new Batteries(GridTerminalSystem, Me.CubeGrid.EntityId),
         new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
-        cargoConnector
+        cargoConnector,
+        hangar,
+        homepath
     );
 
     Drone.FlightPaths.Clear();
@@ -356,6 +381,12 @@ public void InitProgram()
         Drone.AddFlightPath(pathData);
     }
     Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
+    
+    if (hangar == 0L) {
+        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString());
+    } else if(Drone.Mode == "None" || Drone.Mode == "Init") {
+        Drone.GoHome();
+    }
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -380,7 +411,7 @@ public void Main(String argument, UpdateType updateSource)
 
     if (Drone.Mode != "None") {
         Runtime.UpdateFrequency = UpdateFrequency.Update10;
-    } else if (Drone.Connector.Status == MyShipConnectorStatus.Connected && Drone.Connector.OtherConnector.CubeGrid.IsStatic) {
+    } else if (Drone.Connector.Status == MyShipConnectorStatus.Connected && Drone.IsHomeConnected()) {
         Runtime.UpdateFrequency = UpdateFrequency.None;
     } else {
         Runtime.UpdateFrequency = UpdateFrequency.Update100;
@@ -417,7 +448,7 @@ public void UpdateInfo()
         + "\n"
         + "RemoteControl: " + Drone.RemoteControl.CustomName + "\n"
         + "Connector: " + (Drone.Connector != null ? Drone.Connector.CustomName : "not found") + "\n"
-        + "Home:" + Drone.Hangar + "\n"
+        + "Home:" + Drone.Hangar.ToString() + "\n"
         + "Mode: " + Drone.Mode + "\n"
         + "CurrentPath: " + currentPath + "\n"
         + "Next Target: " + Drone.Target.ToString() + "\n"
@@ -443,7 +474,7 @@ public void ReadArgument(String args)
     switch (command) {
         case "SetRemoteControl":
             block = GridTerminalSystem.GetBlockWithName(allArgs);
-            if (block == null) {
+            if ((block as IMyRemoteControl) == null) {
                 Echo("RemoteControl '" + allArgs + "' not found.");
                 break;
             }
@@ -456,34 +487,13 @@ public void ReadArgument(String args)
             Echo("RemoteControl '" + allArgs + "' configured.");
             break;
 
-        case "SetChannel":
-            if (Drone != null) {
-                //Drone.Transceiver.SetChannel(allArgs);
-            } else {
-                Sys.Config("Channel").Value = allArgs;
-            }
-            Echo("Transceiver Channel " + allArgs + "configured.");
-            break;
-
         case "ReceiveMessage":
             Echo("Received radio data.");
             Drone.Run();
             break;
 
-        case "Demo":
-            if (Drone == null) {
-                Echo("Not initialized");
-                break;
-            }
-            Drone.FlightPaths.Clear();
-            Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #1:48066.95:30412.84:23038.05:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #3:48192.22:30520.91:22778.19:");
-            Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #3:48192.22:30520.91:22778.19:GPS:Gandur #4:48040.41:30641.55:22847.58:>GPS:Gandur #5:47962.97:30626.48:22888.47:");
-            Drone.ExecuteMessage("AddFlightPath|GPS:Gandur #4:48040.41:30641.55:22847.58:GPS:Gandur #2:48066.88:30588.4:22908.97:GPS:Gandur #1:48066.95:30412.84:23038.05:>GPS:Gandur #6:48061.14:30392.56:23044.62:");
-            Drone.ExecuteMessage("Start");
-            break;
-
         default:
-            Echo("Available Commands: SetRemoteControl, SetChannel");
+            Echo("Available Commands: SetRemoteControl");
             break;
     }
 }
@@ -570,7 +580,7 @@ public class MBOS {
         long cubeId = 0L;
         try
         {
-            cubeId = Int64.Parse(id);
+            cubeId = long.Parse(id);
         }
         catch (FormatException)
         {
@@ -579,7 +589,7 @@ public class MBOS {
 
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
         if(block == null || block.CubeGrid.EntityId != GridId) {
-            Echo("Dont found:" + cubeId.ToString() + " on " + GridId.ToString());
+            Echo("Don't found:" + cubeId.ToString() + " on " + GridId.ToString());
             return null;
         }
 

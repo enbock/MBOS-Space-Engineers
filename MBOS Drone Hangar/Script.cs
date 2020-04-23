@@ -15,7 +15,7 @@ public class DroneHangar
     public class Pod {
         public IMyShipConnector Connector;
         public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
-        public String Drone;
+        public long Drone = 0L;
 
         public Pod(IMyShipConnector connector) {
             Connector = connector;
@@ -26,11 +26,12 @@ public class DroneHangar
 
         protected void LoadConfig() {
             MBOS.Sys.LoadConfig(Connector.CustomData, ConfigList);
-            Drone = MBOS.Sys.Config("Drone", ConfigList).Value;
+            String drone = MBOS.Sys.Config("Drone", ConfigList).Value;
+            Drone = drone == String.Empty ? 0L : long.Parse(drone);
         }
 
         public void SaveConfig() {
-            MBOS.Sys.Config("Drone", ConfigList).Value = Drone;
+            MBOS.Sys.Config("Drone", ConfigList).Value = Drone.ToString();
             MBOS.Sys.SaveConfig(Connector, ConfigList);
         }
 
@@ -43,6 +44,18 @@ public class DroneHangar
         MBOS.ParseGPS(flightInPoint, out FlightInPoint);
         FindPods();
         BroadCastEmptySlots();
+    }
+
+    public void ExecuteMessage(String message) {
+        List<String> parts = new List<String>(message.Split('|'));
+        String command = parts[0];
+        parts.RemoveAt(0);
+
+        switch(command) {
+            case "DroneNeedHome":
+                RegisterDrone(long.Parse(parts[0]));
+                break;
+        }
     }
 
     protected void FindPods() {
@@ -61,7 +74,7 @@ public class DroneHangar
     }
 
     protected void BroadCastEmptySlots() {
-        List<Pod> emptyPods = Pods.FindAll((Pod pod) => pod.Drone == string.Empty);
+        List<Pod> emptyPods = Pods.FindAll((Pod pod) => pod.Drone == 0L);
 
         MBOS.Sys.Echo("Having " + emptyPods.Count.ToString() + " free pods.");
 
@@ -69,6 +82,31 @@ public class DroneHangar
             MBOS.Sys.BroadCastTransceiver.SendMessage("DroneHangarHasPodsAvailable|" + MBOS.Sys.EntityId);
         }
 
+    }
+
+    protected void RegisterDrone(long drone) {
+        List<Pod> knownDrones = Pods.FindAll((Pod pod) => pod.Drone == drone);
+        foreach(Pod pod in knownDrones) {
+            pod.Drone = 0L;
+        }
+        List<Pod> emptyPods = Pods.FindAll((Pod pod) => pod.Drone == 0L);
+
+        if (emptyPods.Count == 0) {
+            MBOS.Sys.Echo("No pod for " + drone.ToString() + " available.");
+        }
+        Pod registeredPod = emptyPods[0];
+        registeredPod.Drone = drone;
+        registeredPod.SaveConfig();
+
+        Vector3D dockAt = registeredPod.Connector.CubeGrid.GridIntegerToWorld(registeredPod.Connector.Position);
+        MBOS.Sys.Transceiver.SendMessage(
+            registeredPod.Drone, 
+            "DroneRegisteredAt|" + MBOS.Sys.EntityId.ToString()
+            + "|" + FlightInPoint.ToString()
+            + ">" + (new MyWaypointInfo("Dock At", dockAt)).ToString()
+        );
+        
+        MBOS.Sys.Echo("Drone " + drone.ToString() + " registered.");
     }
 }
 
@@ -105,7 +143,7 @@ public void InitProgram()
 
     Hangar = new DroneHangar(waypoint);
 
-    Runtime.UpdateFrequency = UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
@@ -167,10 +205,10 @@ public void ReadArgument(String args)
             Echo("Received radio data.");
             String message = string.Empty;
             while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-
+                Hangar.ExecuteMessage(message);
             }
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-
+                Hangar.ExecuteMessage(message);
             }
             break;
         default:
