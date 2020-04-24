@@ -1,6 +1,6 @@
 const String NAME = "Drone Hangar";
 const String VERSION = "1.0.0";
-const String DATA_FORMAT = "1.0";
+const String DATA_FORMAT = "1";
 
 /**
 

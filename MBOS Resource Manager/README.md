@@ -15,21 +15,24 @@ Manage a catalog of network available and needed resources.
 Resource is a free text indentifier. The producer must provide slot to "fill" resource.
 
 #### Resource Types
-* `SingleUnit` - 1 - A element, which can transport only in one piece (eg. `EmptyEngeryCell`, `ChargedEneryCell`)
-* `ContainerUnit` - 2 - Classical resource like `SteelPlate` or `Ice` (have amount *Quantity* and *Volume* per unit)
-* `LiquidUnit`- 3 - Liquid like `H2` (*Volume* per unit is always `1`)
+* `Single` - 1 - A element, which can transport only in one piece (eg. `EmptyEngeryCell`, `ChargedEneryCell`)
+* `Container` - 2 - Classical resource like `SteelPlate` or `Ice` (have amount *Quantity* and *Volume* per unit)
+* `Liquid`- 3 - Liquid like `H2` (*Volume* per unit is always `1`)
 
 ## Radio Transmissions
 [B] == Broad cast    
 [U] == Unicast
 ### Register producer
-* [B] Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|{<SingleUnit>|<ConatinerUnit>|<LiquidUnit>}|<Volume>|<Waypoint>`
+* [B] Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|{Single|Conatiner|Liquid}|<Volume>|<Waypoint>`
 * [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityId>`
 ### Register consumer
 * [B] Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Waypoint>`
 * [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityId>`
+### Repear registrations
+* [B] Manager> `ReRegisterProducer`
+* [B] Manager> `ReRegisterConsumer`
 ### Stock update
-* [U] Station> `UpdateResourceStock|<Resource Name>|<Quantity>|<Reservation Quantity>`
+* [U] Station> `UpdateResourceStock|<Resource Name>|<Quantity>|<Reservation Quantity>|<Station-EntityID>|<Waypoint>`
 ### Order resource
 * [U] Manager> `OrderResource|<Resource Name>|<Quantity>`
 ### Request resource
