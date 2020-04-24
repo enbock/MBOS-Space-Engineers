@@ -6,7 +6,8 @@ public enum UnitType
 {
     Single = 1,
     Container = 2,
-    Liquid = 3
+    Liquid = 3,
+    Battery = 4
 }
 
 public class ResourceManager {
@@ -80,33 +81,37 @@ public class ResourceManager {
 
     public List<Producer> Producers = new List<Producer>();
     public List<Consumer> Consumers = new List<Consumer>();
-    MBOS System;
+    public IMyTextPanel Screen;
+    MBOS Sys;
 
-    public ResourceManager(MBOS system) {
-        System = system;
+    public ResourceManager(MBOS sys) {
+        Sys = sys;
         Load();
     }
 
     public void Load() {
-        List<String> list = new List<String>(System.Config("Producers").Value.Split('|'));
+        List<String> list = new List<String>(Sys.Config("Producers").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) Producers.Add(new Producer(line));
         });
         
-        list = new List<String>(System.Config("Consumers").Value.Split('|'));
+        list = new List<String>(Sys.Config("Consumers").Value.Split('|'));
         list.ForEach(delegate(String line) { 
             if(line != String.Empty) Consumers.Add(new Consumer(line));
         });
+
+        Screen = Sys.Config("Screen").Block as IMyTextPanel;
     }
 
     public void Save() {
         List<String> list = new List<String>();
         Producers.ForEach((Producer producer) => list.Add(producer.ToString()));
-        System.Config("Producers").Value = String.Join("|", list.ToArray());
+        Sys.Config("Producers").Value = String.Join("|", list.ToArray());
 
         list.Clear();
         Consumers.ForEach((Consumer consumer) => list.Add(consumer.ToString()));
-        System.Config("Consumers").Value = String.Join("|", list.ToArray());
+        Sys.Config("Consumers").Value = String.Join("|", list.ToArray());
+        Sys.Config("Screen").Block = Screen;
     }
 
     public void ExecuteMessage(String message) {
@@ -125,6 +130,40 @@ public class ResourceManager {
                 UpdateResourceStock(parts);
                 break;
         }
+    }
+
+    public class ResourceInfo {
+        public int Stock = 0;
+        public int Reserved = 0;
+    }
+
+    public void UpdateScreen() {
+        if(Screen == null) {
+            return;
+        }
+
+        String output = "";
+        output += "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "] [" 
+            + NAME + " v" + VERSION + "]\nResources:\n---------------\n"
+        ;
+
+        Dictionary<String, ResourceInfo> info = new Dictionary<String, ResourceInfo>();
+
+        Producers.ForEach(delegate(Producer producer) {
+            if (info.ContainsKey(producer.Unit) == false) {
+                info.Add(producer.Unit, new ResourceInfo());
+            }
+            ResourceInfo item = info[producer.Unit];
+            item.Stock += producer.Stock;
+            item.Reserved += producer.Reserved;
+
+        });
+
+        foreach(KeyValuePair<String, ResourceInfo> pair in info) {
+            output += "  * " + pair.Key + ": " + pair.Value.Stock.ToString() + "(" + pair.Value.Reserved.ToString() + ")\n";
+        }
+
+        Screen.WriteText(output, false);
     }
 
     protected void RegisterProducer(List<String> parts) {
@@ -150,9 +189,9 @@ public class ResourceManager {
             newProducer = foundProducers[0];
         }
 
-        System.Transceiver.SendMessage(
+        Sys.Transceiver.SendMessage(
             newProducer.EntityId, 
-            "ProducerRegistered|" + newProducer.Unit + "|" + System.EntityId
+            "ProducerRegistered|" + newProducer.Unit + "|" + Sys.EntityId
         );
     }
 
@@ -186,9 +225,9 @@ public class ResourceManager {
             newConsumer = foundConsumers[0];
         }
 
-        System.Transceiver.SendMessage(
+        Sys.Transceiver.SendMessage(
             newConsumer.EntityId, 
-            "ConsumerRegistered|" + newConsumer.Unit + "|" + System.EntityId
+            "ConsumerRegistered|" + newConsumer.Unit + "|" + Sys.EntityId
         );
     }
 }
@@ -226,7 +265,6 @@ public void InitProgram()
     Echo("Program initialized.");
 }
 
-
 public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
@@ -239,9 +277,10 @@ public void Main(String argument, UpdateType updateSource)
     UpdateInfo();
 }
 
-
 public void UpdateInfo()
 {
+    Manager.UpdateScreen();
+
     String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
@@ -275,8 +314,14 @@ public void ReadArgument(String args)
                 Manager.ExecuteMessage(message);
             }
             break;
+        case "SetLCD":
+            IMyTextPanel lcd = Sys.GetBlockByName(allArgs) as IMyTextPanel;
+            if(lcd != null) {
+                Manager.Screen = lcd;
+            }
+            break;
         default:
-            Echo("Available Commands: ");
+            Echo("Available Commands: \n  * SetLCD <Name of Panel>");
             break;
     }
 }
@@ -375,7 +420,18 @@ public class MBOS {
 
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
         if(block == null || block.CubeGrid.EntityId != GridId) {
-            Echo("Dont found:" + cubeId.ToString() + " on " + GridId.ToString());
+            Echo("Don't found: " + cubeId.ToString() + " on " + GridId.ToString());
+            return null;
+        }
+
+        return block;
+    }
+
+    public IMyTerminalBlock GetBlockByName(String name)
+    {   
+        IMyTerminalBlock block = GridTerminalSystem.GetBlockWithName(name);
+        if(block == null || block.CubeGrid.EntityId != GridId) {
+            Echo("Don't found: " + name + " on " + GridId.ToString());
             return null;
         }
 

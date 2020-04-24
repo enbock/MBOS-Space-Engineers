@@ -4,7 +4,7 @@ const String DATA_FORMAT = "2";
 
 /*
     Register examples:
-        Register ChargedEnergyCell Single 1 Power Charger #6 GPS:DockAt #6:48071.05:30388.26:23037.28:
+        Register ChargedEnergyCell Battery 1 Power Charger #6 GPS:DockAt #6:48071.05:30388.26:23037.28:
         Register EmptyEnergyCell Single 1 Charge Connector #1
 */
 
@@ -12,7 +12,8 @@ public enum UnitType
 {
     Single = 1,
     Container = 2,
-    Liquid = 3
+    Liquid = 3,
+    Battery = 4 // same a single but with battery check
 }
 
 public class Manager
@@ -62,17 +63,39 @@ public class Manager
             ;
         }
 
-        public bool StockHasChanged() {
+        public bool StockHasChanged(MBOS system) {
             int oldStock = Stock;
-            UpdateStock();
+            UpdateStock(system);
 
             return oldStock != Stock;
         }
 
-        protected void UpdateStock() {
+        protected void UpdateStock(MBOS system) {
             switch(Type) {
                 case UnitType.Single:
                     Stock = Connector.Status == SingleUnitStockWhen ? 1 : 0;
+                    break;
+                case UnitType.Battery:
+                    if (Connector.Status != MyShipConnectorStatus.Connected) {
+                        Stock = 0;
+                        break;
+                    }
+                    float current = 0f;
+                    float max = 0f;
+                    List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
+
+                    system.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
+                        batteries,
+                        (IMyTerminalBlock block) => block.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
+                    );
+
+                    batteries.ForEach(delegate(IMyTerminalBlock block) {
+                        IMyBatteryBlock battery = block as IMyBatteryBlock;
+                        max += battery.MaxStoredPower;
+                        current += battery.CurrentStoredPower;
+                    });
+
+                    Stock = (100f / max * current) >= 100f ? 1 : 0;
                     break;
             }
         }
@@ -159,7 +182,7 @@ public class Manager
         Resources.ForEach(delegate(Resource resource) {
             if(resource.RegisteredByManager == 0) return;
             if(force == true) SendUpdate(resource);
-            if(resource.StockHasChanged() == false) return;
+            if(resource.StockHasChanged(System) == false) return;
 
             // Apply reservations
             switch(resource.Type) {
@@ -300,6 +323,9 @@ public void ReadArgument(String args)
             FactoryManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
             FactoryManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = FactoryManager.SingleUnitStockWhen);
             break;
+        case "Reset":
+            FactoryManager.Resources.Clear();
+            break;
         case "ReceiveMessage":
             Echo("Received radio data.");
             String message = string.Empty;
@@ -415,7 +441,7 @@ public class MBOS {
 
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
         if(block == null || block.CubeGrid.EntityId != GridId) {
-            Echo("Don't found:" + cubeId.ToString() + " on " + GridId.ToString());
+            Echo("Don't found: " + cubeId.ToString() + " on " + GridId.ToString());
             return null;
         }
 
@@ -426,7 +452,7 @@ public class MBOS {
     {   
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithName(name);
         if(block == null || block.CubeGrid.EntityId != GridId) {
-            Echo("Don't found:" + name + " on " + GridId.ToString());
+            Echo("Don't found: " + name + " on " + GridId.ToString());
             return null;
         }
 

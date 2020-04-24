@@ -28,7 +28,7 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 ### Register consumer
 * [B] Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Waypoint>`
 * [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityId>`
-### Repear registrations
+### Repeat registrations
 * [B] Manager> `ReRegisterProducer`
 * [B] Manager> `ReRegisterConsumer`
 ### Stock update
