@@ -243,7 +243,7 @@ public class Manager
 }
 
 MBOS Sys;
-Manager FactoryManager;
+Manager ProducerManager;
 
 public Program()
 {
@@ -255,7 +255,7 @@ public Program()
 
 public void Save()
 {
-    FactoryManager.Save();
+    ProducerManager.Save();
     
     Sys.SaveConfig();
 }
@@ -264,7 +264,7 @@ public void InitProgram()
 {
     Sys.LoadConfig();
 
-    FactoryManager = new Manager(Sys);
+    ProducerManager = new Manager(Sys);
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100; //UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -275,11 +275,11 @@ public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
 
-    if (FactoryManager == null) {
+    if (ProducerManager == null) {
         InitProgram();
     }
 
-    FactoryManager.UpdateStock();
+    ProducerManager.UpdateStock();
     Save();
     UpdateInfo();
 }
@@ -287,11 +287,26 @@ public void Main(String argument, UpdateType updateSource)
 
 public void UpdateInfo()
 {
+    String stockResourceOutput = "Stock:\n";
+    Dictionary<string, int> stockResources = new Dictionary<string, int>();
+    ProducerManager.Resources.ForEach(
+        delegate(Manager.Resource resource) {
+            if(stockResources.ContainsKey(resource.Unit) == false) {
+                stockResources.Add(resource.Unit, 0);
+            }
+            stockResources[resource.Unit] += resource.Stock - resource.Reservation;
+        }
+    );
+    foreach(KeyValuePair<string, int> pair in stockResources) {
+        stockResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "\n";
+    }
+
     String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
-        + "Registered Resources: " + FactoryManager.Resources.Count.ToString() + "\n"
+        + "Registered Resources: " + ProducerManager.Resources.Count.ToString() + "\n"
+        + stockResourceOutput
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() +"\n"
         + "----------------------------------------\n"
@@ -310,30 +325,30 @@ public void ReadArgument(String args)
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
         case "Register":
-            if(FactoryManager.RegisterResource(parts)) {
+            if(ProducerManager.RegisterResource(parts)) {
                 Echo("New resources registered.");
             } else {
                 Echo("Registration failed.");
             }
             break;
         case "ForceUpdate":
-            FactoryManager.UpdateStock(true);
+            ProducerManager.UpdateStock(true);
             break;
         case "SingleUpdateStockWhen":
-            FactoryManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
-            FactoryManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = FactoryManager.SingleUnitStockWhen);
+            ProducerManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
+            ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = ProducerManager.SingleUnitStockWhen);
             break;
         case "Reset":
-            FactoryManager.Resources.Clear();
+            ProducerManager.Resources.Clear();
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");
             String message = string.Empty;
             while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                FactoryManager.ExecuteMessage(message);
+                ProducerManager.ExecuteMessage(message);
             }
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                FactoryManager.ExecuteMessage(message);
+                ProducerManager.ExecuteMessage(message);
             }
             break;
         default:

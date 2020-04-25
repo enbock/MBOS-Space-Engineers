@@ -1,8 +1,207 @@
-const String NAME = "Power Manager";
+const String NAME = "Consumer";
 const String VERSION = "1.0.0";
-const String DATA_FORMAT = "1.0";
+const String DATA_FORMAT = "1";
+
+/*
+    Register examples:
+        Register EmptyEnergyCell Single 1 Power Charger #1
+*/
+
+public enum UnitType
+{
+    Single = 1,
+    Container = 2,
+    Liquid = 3
+}
+
+public class Manager
+{
+    public class Resource
+    {
+        public String Unit;
+        public UnitType Type;
+        public int RequiredStock;
+        public IMyShipConnector Connector;
+        public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
+        public int Stock = 0;
+        public long RegisteredByManager = 0;
+        public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
+        
+        public Resource(String unit, UnitType type, int requiredStock, IMyShipConnector connector, MyWaypointInfo waypoint) {
+            Unit = unit;
+            Type = type;
+            Connector = connector;
+            Waypoint = waypoint;
+            RequiredStock = requiredStock;
+        }
+
+        public Resource(MBOS system, String data) {
+            List<String> parts = new List<String>(data.Split('*'));
+
+            Unit = parts[0];
+            Type = (UnitType) Enum.Parse(typeof(UnitType), parts[1]);
+            RequiredStock = int.Parse(parts[2]);
+            Connector = system.GetBlock(parts[3]) as IMyShipConnector;
+            MBOS.ParseGPS(parts[4], out Waypoint);
+            Stock = int.Parse(parts[5]);
+            RegisteredByManager = long.Parse(parts[6]);
+        }
+
+        public override String ToString() {
+            return Unit.ToString()
+                + "*" + Type.ToString()
+                + "*" + RequiredStock.ToString()
+                + "*" + Connector.EntityId.ToString()
+                + "*" + Waypoint.ToString()
+                + "*" + Stock.ToString()
+                + "*" + RegisteredByManager.ToString()
+            ;
+        }
+
+        public bool StockHasChanged(MBOS system) {
+            int oldStock = Stock;
+            UpdateStock(system);
+
+            return oldStock != Stock;
+        }
+
+        protected void UpdateStock(MBOS system) {
+            switch(Type) {
+                case UnitType.Single:
+                    Stock = Connector.Status == SingleUnitStockWhen ? 1 : 0;
+                    break;
+            }
+        }
+    }
+
+    public List<Resource> Resources = new List<Resource>();
+    public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
+    protected MBOS System;
+
+    public Manager(MBOS system) {
+        System = system;
+        Load();
+    }
+
+    public bool RegisterResource(List<string> parts) {
+        String unit = parts[0];
+        UnitType type = (UnitType) Enum.Parse(typeof(UnitType), parts[1]);
+        int requiredStock = int.Parse(parts[2]);
+        MyWaypointInfo waypoint = MyWaypointInfo.Empty;
+        parts.RemoveRange(0, 3);
+
+        String nameAndGpsValue = String.Join(" ", parts.ToArray());
+        List<String> nameAndGpsParts = new List<String>(
+             nameAndGpsValue.Split(new string[] {" GPS:"}, StringSplitOptions.RemoveEmptyEntries)
+        );
+
+        IMyShipConnector connector = System.GetBlockByName(nameAndGpsParts[0]) as IMyShipConnector;
+        if (connector == null) {
+            if (connector == null) {
+                return false;
+            }
+        }
+        Vector3D dockAt = connector.CubeGrid.GridIntegerToWorld(connector.Position);
+        waypoint = new MyWaypointInfo(unit + " Target", dockAt);
+
+        if (nameAndGpsParts.Count > 1 && MBOS.ParseGPS("GPS:" + nameAndGpsParts[1], out waypoint) == false) {
+            return false;
+        }
+
+        List<Resource> foundResources = Resources.FindAll(
+            (Resource resource) => resource.Unit == unit 
+                && resource.Type == type
+                && resource.Connector.EntityId == connector.EntityId
+                && resource.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
+        );
+        Resource newResource;
+        if(foundResources.Count > 0) {
+            newResource = foundResources[0];
+            newResource.RequiredStock = requiredStock;
+        } else {
+            newResource = new Resource(unit, type, requiredStock, connector, waypoint);
+            Resources.Add(newResource);
+        }
+
+        BroadCastResource(newResource);
+
+        return true;
+    }
+
+    public void Save() {
+        List<String> list = new List<String>();
+        Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
+        System.Config("Resources").Value = String.Join("|", list.ToArray());
+        System.Config("SingleUnitStockWhen").Value = SingleUnitStockWhen.ToString();
+    }
+
+    public void ExecuteMessage(String message) {
+        List<String> parts = new List<String>(message.Split('|'));
+        String command = parts[0];
+        parts.RemoveAt(0);
+
+        switch(command) {
+            case "ConsumerRegistered":
+                ConsumerRegistered(parts[0], long.Parse(parts[1]));
+                break;
+            case "ReConsumerConsumer":
+                Resources.ForEach((Resource resource) => BroadCastResource(resource));
+                break;
+        }
+    }
+
+    public void UpdateStock(bool force = false)
+    {
+        Resources.ForEach(delegate(Resource resource) {
+            if(resource.RegisteredByManager == 0) return;
+            if(resource.StockHasChanged(System) == false && force == false) return;
+
+            if(resource.Stock >= resource.RequiredStock) return;
+
+            int neededQuantity = resource.RequiredStock - resource.Stock;
+
+            System.Transceiver.SendMessage(
+                resource.RegisteredByManager,
+                "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
+            );
+        });
+    }
+
+    protected void Load() {
+        String singleStockWhen = System.Config("SingleUnitStockWhen").Value;
+        if (singleStockWhen != String.Empty) {
+            SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhen);
+        }
+        List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
+        list.ForEach(delegate(String line) {
+            if(line != String.Empty) {
+                Resource newResource = new Resource(System, line);
+                newResource.SingleUnitStockWhen = SingleUnitStockWhen;
+                Resources.Add(newResource);
+                BroadCastResource(newResource);
+            }
+        });
+    }
+
+    protected void BroadCastResource(Resource resource) {
+        System.BroadCastTransceiver.SendMessage(
+            "RegisterConsumer|" + resource.Unit 
+            + "|" + System.EntityId
+            + "|" + resource.Waypoint.ToString()
+        );
+    }
+
+    protected void ConsumerRegistered(String unit, long managerId) {
+        Resources.ForEach(delegate(Resource resource){
+            if (resource.Unit != unit) return;
+            resource.RegisteredByManager = managerId;
+            UpdateStock(true);
+        });
+    }
+}
 
 MBOS Sys;
+Manager ConsumerManager;
 
 public Program()
 {
@@ -14,9 +213,7 @@ public Program()
 
 public void Save()
 {
-    //if(Hangar != null) {
-        //Sys.Config("RemoteControl").Block = Drone.RemoteControl;
-    //}
+    ConsumerManager.Save();
     
     Sys.SaveConfig();
 }
@@ -25,16 +222,7 @@ public void InitProgram()
 {
     Sys.LoadConfig();
 
-    /*
-    String waypoint = Sys.Config("FlightInPoint").Value;
-
-    if (waypoint == String.Empty) {
-        Echo("Missing flight in point.\nRun FlightIn <GPS>");
-        return;
-    }
-
-    Hangar = new DroneHangar(waypoint);
-    */
+    ConsumerManager = new Manager(Sys);
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100; //UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -45,16 +233,11 @@ public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
 
-    /*
-    if (Hangar == null) {
+    if (ConsumerManager == null) {
         InitProgram();
-        if (Hangar == null) { 
-            Runtime.UpdateFrequency = UpdateFrequency.None;
-            return;
-        }
     }
-    */
 
+    ConsumerManager.UpdateStock();
     Save();
     UpdateInfo();
 }
@@ -62,10 +245,27 @@ public void Main(String argument, UpdateType updateSource)
 
 public void UpdateInfo()
 {
-    String output = "[X-World] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
+    String neededResourceOutput = "Needed Resources:\n";
+    Dictionary<string, int> neededResources = new Dictionary<string, int>();
+    ConsumerManager.Resources.ForEach(
+        delegate(Manager.Resource resource) {
+            if(resource.Stock >= resource.RequiredStock) return;
+            if(neededResources.ContainsKey(resource.Unit) == false) {
+                neededResources.Add(resource.Unit, 0);
+            }
+            neededResources[resource.Unit] += resource.RequiredStock - resource.Stock;
+        }
+    );
+    foreach(KeyValuePair<string, int> pair in neededResources) {
+        neededResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "\n";
+    }
+
+    String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
+        + "Registered Resources: " + ConsumerManager.Resources.Count.ToString() + "\n"
+        + neededResourceOutput
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() +"\n"
         + "----------------------------------------\n"
@@ -83,28 +283,36 @@ public void ReadArgument(String args)
     parts.RemoveAt(0);
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
-        case "FlightIn":
-            MyWaypointInfo gps = MyWaypointInfo.Empty;
-            if(MBOS.ParseGPS(allArgs, out gps)) {
-                Sys.Config("FlightInPoint").Value = gps.ToString();
-                Hangar = null;
-                Echo("Flight In Point set to: " + gps.ToString());
+        case "Register":
+            if(ConsumerManager.RegisterResource(parts)) {
+                Echo("New resources registered.");
             } else {
-                Echo("Error by parsing GPS coordinate");
+                Echo("Registration failed.");
             }
+            break;
+        case "SingleUpdateStockWhen":
+            ConsumerManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
+            ConsumerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = ConsumerManager.SingleUnitStockWhen);
+            break;
+        case "Reset":
+            ConsumerManager.Resources.Clear();
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");
             String message = string.Empty;
             while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-
+                ConsumerManager.ExecuteMessage(message);
             }
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-
+                ConsumerManager.ExecuteMessage(message);
             }
             break;
         default:
-            Echo("Available Commands: ");
+            Echo(
+                "Available Commands: \n"
+                + " * Register <Resource Name> {Single|Conatiner|Liquid} <Required Amount> <Connector> [<GPS>]\n"
+                + " * SingleUpdateStockWhen {Connected|Connectable|Unconnected}"
+            );
             break;
     }
 }
@@ -203,7 +411,18 @@ public class MBOS {
 
         IMyTerminalBlock block = GridTerminalSystem.GetBlockWithId(cubeId);
         if(block == null || block.CubeGrid.EntityId != GridId) {
-            Echo("Dont found:" + cubeId.ToString() + " on " + GridId.ToString());
+            Echo("Don't found: " + cubeId.ToString() + " on " + GridId.ToString());
+            return null;
+        }
+
+        return block;
+    }
+
+    public IMyTerminalBlock GetBlockByName(String name)
+    {   
+        IMyTerminalBlock block = GridTerminalSystem.GetBlockWithName(name);
+        if(block == null || block.CubeGrid.EntityId != GridId) {
+            Echo("Don't found: " + name + " on " + GridId.ToString());
             return null;
         }
 
@@ -379,5 +598,9 @@ public class MBOS {
 
             return output;
         }
+    }
+
+    public static bool ParseGPS(String gpsData, out MyWaypointInfo gps) {
+        return MyWaypointInfo.TryParse(gpsData, out gps);
     }
 }

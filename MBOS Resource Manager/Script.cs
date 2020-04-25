@@ -144,7 +144,7 @@ public class ResourceManager {
 
         String output = "";
         output += "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "] [" 
-            + NAME + " v" + VERSION + "]\nResources:\n---------------\n"
+            + NAME + " v" + VERSION + "]\nProducer Resources:\n---------------\n"
         ;
 
         Dictionary<String, ResourceInfo> info = new Dictionary<String, ResourceInfo>();
