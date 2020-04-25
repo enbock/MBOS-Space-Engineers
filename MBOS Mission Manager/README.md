@@ -17,7 +17,6 @@ The Mission Manager coordinate the missions for drone inside the broad cast netw
 ### Request mission
 * [B] Manager< `RequestMission|<Requester Station-ID>|<Mission-ID>|<Drone Type>|<Producer Waypoint>|<Producer Station-GridID>|<Consumer Waypoint>|<Consumer Station-GridID>`
 ### Request flight path
-* [U] Manager to FlightControl> `RequestFlight|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
-* [U] FlightControl to Manager> `FlightPlan|<Mission-ID>|<FlightPath>`
+* [B] Manager to FlightControl> `RequestFlight|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
 ### Complete mission
 * [B] Manager< `MissionCompleted|<Mission-ID>`

@@ -187,6 +187,7 @@ public void InitProgram()
 
     Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
     Echo("Program initialized.");
+    UpdateInfo();
 }
 
 
@@ -213,6 +214,7 @@ public void UpdateInfo()
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
+        + "Station GridID: " + Sys.GridId + "\n"
         + "Flight in point: " + Hangar.FlightIn.ToString() + "\n"
         + "Number of pods: " + Hangar.Pods.Count.ToString() + "\n"
         + "Unused pods: " + Hangar.Pods.FindAll((DroneHangar.Pod pod) => pod.Drone == 0L).Count.ToString() + "\n"

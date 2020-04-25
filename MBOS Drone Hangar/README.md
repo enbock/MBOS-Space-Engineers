@@ -30,11 +30,8 @@ Connectors must just contain the word "pod" in his name.
 ### Register at FlightControl
 * [B]> `RegisterHangar|<Station-ID>|<Hangar-GridID>|<FlightIn Waypoint>`
 
-### Update Drone Stock
-* [U]> `HangarUpdate|<Hangar-GridID>|<Drone Type>|<Amount>`
-
 ### Request transport
-* [U]< `TransportRequest|<Mission-ID>|<FlightPath>`
+* [U]< `RequestTransport|<Mission-ID>|<Drone Type>|<FlightPath>`
 
 ### Complete mission
 * [B]> `MissionCompleted|<Mission-ID>`

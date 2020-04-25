@@ -128,11 +128,17 @@ public class TransportDrone
 
     public void AddFlightPath(String gpsList) 
     {
-        FlightPath path = FlightPath.ParseString(gpsList);
+        List<string> pathParts = new List<string>(gpsList.Split('<'));
 
-        if (path.Waypoints.Count > 0) {
-            FlightPaths.Add(path);
-        }
+        pathParts.ForEach(
+            delegate(string pathPart) {
+                if (pathPart == string.Empty) return;
+
+                FlightPath path = FlightPath.ParseString(pathPart);
+                if (path.Waypoints.Count == 0) return;
+                FlightPaths.Add(path);
+            }
+        );
     }
 
     public void Dock() 
@@ -197,6 +203,11 @@ public class TransportDrone
 
         switch(Mode) {
             case "Direct":
+                if (FlightPaths.Count > 0) {
+                    Mark = DateTime.Now.AddSeconds(5);
+                    Mode = "Mark";
+                    break;
+                }
                 Dock();
                 break;
             case "Flight":
@@ -214,6 +225,9 @@ public class TransportDrone
                 Dock();
                 break;
             case "None":
+                if (IsHomeConnected() == false) {
+                    GoHome();
+                }
                 break;
             case "Dock":
                 MarkDock();
@@ -245,7 +259,7 @@ public class TransportDrone
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
+        if (IsHomeConnected()) {
             Connector.Disconnect();
         }
 
@@ -254,7 +268,7 @@ public class TransportDrone
         RemoteControl.SetCollisionAvoidance(false);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
-        RemoteControl.AddWaypoint(waypoint);
+        AddWaypointWithConnectorOffset(RemoteControl, waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
     }
@@ -274,7 +288,7 @@ public class TransportDrone
         RemoteControl.ClearWaypoints();
 
         foreach(MyWaypointInfo waypoint in CurrentPath.Waypoints) {
-            RemoteControl.AddWaypoint(waypoint);
+            AddWaypointWithConnectorOffset(RemoteControl, waypoint);
         }
         
         RemoteControl.SetAutoPilotEnabled(true);
@@ -291,6 +305,28 @@ public class TransportDrone
                 Lights.TurnOff();
             }
         }
+    }
+
+    protected void AddWaypointWithConnectorOffset(IMyRemoteControl remoteControl, MyWaypointInfo waypoint) {
+        Vector3D coords = new Vector3D(waypoint.Coords);
+
+        IMyShipConnector connector = Connector;
+        if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
+            List<IMyShipConnector> elementBottomConnectors = new List<IMyShipConnector>();
+            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+                elementBottomConnectors, 
+                (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
+                    && connectorItem.Status != MyShipConnectorStatus.Connected
+            );
+            if(elementBottomConnectors.Count > 0) {
+                connector = elementBottomConnectors[0];
+            }
+        }
+        
+        // Add offset
+        coords += (RemoteControl.GetPosition() - connector.GetPosition());
+
+        remoteControl.AddWaypoint(coords, waypoint.Name);
     }
 
     protected void RequestHangar(long receiver)
@@ -411,7 +447,7 @@ public void Main(String argument, UpdateType updateSource)
 
     if (Drone.Mode != "None") {
         Runtime.UpdateFrequency = UpdateFrequency.Update10;
-    } else if (Drone.Connector.Status == MyShipConnectorStatus.Connected && Drone.IsHomeConnected()) {
+    } else if (Drone.IsHomeConnected()) {
         Runtime.UpdateFrequency = UpdateFrequency.None;
     } else {
         Runtime.UpdateFrequency = UpdateFrequency.Update100;
@@ -490,6 +526,10 @@ public void ReadArgument(String args)
             Drone.Hangar = 0L;
             Save();
             InitProgram();
+            break;
+        case "AddPath":
+            Drone.ExecuteMessage("AddFlightPath|"+allArgs);
+            Drone.ExecuteMessage("Start");
             break;
 
         case "ReceiveMessage":

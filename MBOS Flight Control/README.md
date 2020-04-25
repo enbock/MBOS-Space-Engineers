@@ -4,7 +4,8 @@
 The Flight Control produce flight pathes and request hangar to send drone.
 
 ## Commands
-* `RegisterPath
+* `SetFallback <GPS>` - Fallback flightpath point.
+* `RegisterFlightPath <Start-GridID> <Target-GridID> <GPS>[...]` - Create/Update new flight path. GPS must be written without space.
 
 ## Radio Transmissions
 [B] == Broad cast    
@@ -15,10 +16,8 @@ The Flight Control produce flight pathes and request hangar to send drone.
 * [B]< `RegisterStation|<Station-ID>|<Hangar-GridID>|<FlightIn Waypoint>`
 ### Register Hanger at FlightControl
 * [B]< `RegisterHangar|<Station-ID>|<Station-GridID>|<FlightIn Waypoint>`
-### Hangar Update Drone Stock
-* [B]< `HangarUpdate|<Hangar-GridID>|<Drone Type>|<Amount>`
 ### Request flight path
-* [B]< `RequestFlight|<Station-ID>|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
-* [U]> `FlightPlan|<Mission-ID>|<FlightPath>`
+* [B]< `RequestFlight|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
+* [U] to Hangar> `RequestTransport|<Mission-ID>|<Drone Type>|<FlightPath>`
 ### Complete mission
-* [B]< `MissionCompleted|<Mission-ID>`
+* [B] from Hangar< `MissionCompleted|<Mission-ID>`

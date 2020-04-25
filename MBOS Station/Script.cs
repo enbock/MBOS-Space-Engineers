@@ -97,6 +97,7 @@ public void UpdateInfo()
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
+        + "Station GridID: " + Sys.GridId + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() + "\n"
         + "----------------------------------------\n"

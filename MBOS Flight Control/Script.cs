@@ -2,6 +2,14 @@ const String NAME = "Flight Control";
 const String VERSION = "1.0.0";
 const String DATA_FORMAT = "1";
 
+/*
+    Examples from X-World:
+        RegisterFlightPath 127797482999529571 91029766205012422 GPS::48058.54:30421.23:23013.6:GPS::48026.37:30577.35:22880.5:GPS::48089.26:30621.37:22682.89:GPS::48122.93:30572.5:22677.53:GPS::48178.75:30611.43:22521.67:
+        RegisterFlightPath 91029766205012422 127797482999529571 GPS::48189.27:30623.5:22482.73:GPS::48111.23:30571.84:22719.95:GPS::48072.16:30542.42:22842.8:GPS::48050.44:30571:22889.77:GPS::48069.75:30455.18:23006.93:
+        RegisterFlightPath 127797482999529571 108475315539771737 GPS::48068.42:30517.89:23051.31:GPS::47779:31247.37:22704.96:
+        RegisterFlightPath 108475315539771737 127797482999529571 GPS::47755.46:31254.76:22744.02:GPS::47988.64:30528.99:23203.6:
+*/
+
 public class FlightControl
 {
     public class Station {
@@ -34,44 +42,48 @@ public class FlightControl
     }
 
     public class Hangar : Station {
-        public Dictionary<string, int> DroneStock = new Dictionary<string, int>();
-
         public Hangar(long entityId, long gridId, MyWaypointInfo flightIn) : base (entityId, gridId, flightIn) {}
-        public Hangar(string data) : base (data) {
-            List<String> parts = new List<String>(data.Split('*'));
-
-            List<string> droneStock = new List<string>(parts[3].Split('°'));
-            droneStock.ForEach(
-                delegate(string pair) {
-                    if(pair == string.Empty) return;
-                    List<String> keyValue = new List<String>(data.Split('+'));
-                    DroneStock.Add(keyValue[0], int.Parse(keyValue[1]));
-                }
-            );
-        }
-
-        public override String ToString() {
-            String output = base.ToString();
-            
-            List<string> droneStock = new List<string>();
-            foreach(KeyValuePair<string, int> pair in DroneStock) {
-                droneStock.Add(pair.Key + "+" + pair.Value);
-            }
-            output += "*" + string.Join("°", droneStock.ToArray());
-
-            return output;
-        }
+        public Hangar(string data) : base (data) {}
     }
 
     public class FlightPath {
         public long StartGridId;
         public long TargetGridId;
         public List<MyWaypointInfo> Waypoints = new List<MyWaypointInfo>();
+
+        public FlightPath(long startGridId, long targetGridId, string waypoints) {
+            StartGridId = startGridId;
+            TargetGridId = targetGridId;
+            MyWaypointInfo.FindAll(waypoints, Waypoints);
+        }
+
+        public FlightPath(string data) {
+            List<String> parts = new List<String>(data.Split('*'));
+            StartGridId = long.Parse(parts[0]);
+            TargetGridId = long.Parse(parts[1]);
+            MyWaypointInfo.FindAll(parts[2], Waypoints);
+        }
+
+        public String WaypointsToString() {
+            List<string> waypoints = new List<string>();
+            Waypoints.ForEach((MyWaypointInfo waypoint) => waypoints.Add(waypoint.ToString()));
+
+            return String.Join("", waypoints.ToArray());
+        }
+
+        public override String ToString() {
+
+            return StartGridId.ToString()
+                + "*" + TargetGridId.ToString()
+                + "*" + WaypointsToString()
+            ;
+        }
     }
 
     MBOS Sys;
     public List<Hangar> Hangars = new List<Hangar>();
     public List<Station> Stations = new List<Station>();
+    public List<FlightPath> FlightPaths = new List<FlightPath>();
     public MyWaypointInfo FallBackFlightPathWaypoint = MyWaypointInfo.Empty;
 
     public FlightControl(MBOS sys, MyWaypointInfo fallbackFleightPathWaypoint) {
@@ -89,6 +101,10 @@ public class FlightControl
         list.Clear();
         Hangars.ForEach((Hangar hangar) => list.Add(hangar.ToString()));
         Sys.Config("Hangars").Value = String.Join("|", list.ToArray());
+
+        list.Clear();
+        FlightPaths.ForEach((FlightPath flightPath) => list.Add(flightPath.ToString()));
+        Sys.Config("FlightPaths").Value = String.Join("|", list.ToArray());
     }
 
     public void SendReady() {
@@ -107,7 +123,25 @@ public class FlightControl
             case "RegisterHangar":
                 RegisterHangar(long.Parse(parts[0]), long.Parse(parts[1]), parts[2]);
                 break;
+            case "RequestFlight":
+                RequestFlight(parts);
+                break;
         }
+    }
+
+    public bool RegisterFlightPath(long startGrid, long targetGrid, string waypoints) {
+        FlightPath flightPath = new FlightPath(startGrid, targetGrid, waypoints);
+        if (flightPath.Waypoints.Count == 0) return false;
+
+        List<FlightPath> foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == startGrid && path.TargetGridId == targetGrid);
+        foundPaths.ForEach(
+            delegate(FlightPath path) {
+                FlightPaths.Remove(path);
+            }
+        );
+        FlightPaths.Add(flightPath);
+
+        return true;
     }
 
     protected void Load() {
@@ -119,6 +153,11 @@ public class FlightControl
         list = new List<String>(Sys.Config("Hangars").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) Hangars.Add(new Hangar(line));
+        });
+        
+        list = new List<String>(Sys.Config("FlightPaths").Value.Split('|'));
+        list.ForEach(delegate(String line) {
+            if(line != String.Empty) FlightPaths.Add(new FlightPath(line));
         });
     }
 
@@ -150,6 +189,67 @@ public class FlightControl
             newHangar = new Hangar(entityId, gridId, flightIn);
             Hangars.Add(newHangar);
         }
+    }
+
+    protected void RequestFlight(List<string> parts)
+    {
+        string missionId = parts[0];
+        string type = parts[1];
+        long startGrid = long.Parse(parts[3]);
+        long targetGrid = long.Parse(parts[5]);
+
+        // TODO Add multiple hangar handling: List<Hangar> foundHangars = Hangars.FindAll((Hangar hangar) => hangar.GridId == gridId);
+        List<Hangar> foundHangars = Hangars;
+        if(foundHangars.Count == 0) return;
+        Hangar hangar = foundHangars[0];
+
+        MyWaypointInfo startWaypoint = MyWaypointInfo.Empty;
+        if(MBOS.ParseGPS(parts[2], out startWaypoint) == false) return;
+        MyWaypointInfo targetWaypoint = MyWaypointInfo.Empty;
+        if(MBOS.ParseGPS(parts[4], out targetWaypoint) == false) return;
+
+        string flightPath = "";
+        List<Station> foundStations;
+
+        // Search hangar to start grid
+        List<FlightPath> foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == hangar.GridId && path.TargetGridId == startGrid);
+        if (foundPaths.Count > 0) {
+            flightPath += foundPaths[0].WaypointsToString();
+        } else {
+            flightPath += hangar.FlightIn.ToString() + FallBackFlightPathWaypoint.ToString();
+            
+            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
+            if(foundStations.Count == 0) return;
+            flightPath += foundStations[0].FlightIn.ToString();
+        }
+        flightPath += startWaypoint.ToString();
+        
+        // Search start grid to target grid
+        foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == startGrid && path.TargetGridId == targetGrid);
+        if (foundPaths.Count > 0) {
+            flightPath += foundPaths[0].WaypointsToString();
+        } else {
+            foundStations = Stations.FindAll((Station station) => station.GridId == startGrid);
+            if(foundStations.Count == 0) return;
+            flightPath += foundStations[0].FlightIn.ToString() + FallBackFlightPathWaypoint.ToString();
+            
+            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
+            if(foundStations.Count == 0) return;
+            flightPath += foundStations[0].FlightIn.ToString();
+        }
+        flightPath += targetWaypoint.ToString();
+
+        // Search target grid to hangar
+        foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == targetGrid && path.TargetGridId == hangar.GridId);
+        if (foundPaths.Count > 0) {
+            flightPath += foundPaths[0].WaypointsToString();
+        } else {
+            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
+            if(foundStations.Count == 0) return;
+            flightPath += foundStations[0].FlightIn.ToString() + FallBackFlightPathWaypoint.ToString() + hangar.FlightIn.ToString();
+        }
+
+        Sys.Transceiver.SendMessage(hangar.EntityId, "RequestTransport|" + missionId + "|" + type + "|" + flightPath);
     }
 }
 
@@ -226,6 +326,7 @@ public void UpdateInfo()
         + "Stations: " + FlightController.Stations.Count.ToString() + "\n"
         + "Hangars: " + FlightController.Hangars.Count.ToString() + "\n"
         + "Fallback FP: " + FlightController.FallBackFlightPathWaypoint.ToString() + "\n"
+        + "Flight paths: " + FlightController.FlightPaths.Count.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() + "\n"
         + "----------------------------------------\n"
@@ -267,6 +368,21 @@ public void ReadArgument(String args)
             } else {
                 Echo("Error by parsing GPS coordinate");
             }
+            break;
+        case "RegisterFlightPath":
+            long startGrid = long.Parse(parts[0]);
+            long targetGrid = long.Parse(parts[1]);
+            parts.RemoveRange(0, 2);
+            allArgs = String.Join(" ", parts.ToArray());
+            if(FlightController.RegisterFlightPath(startGrid, targetGrid, allArgs)) {
+                Echo("Flight path successful registered.");
+            } else {
+                Echo("Errro: Flight path does not contain waypoints.");
+            }
+            break;
+
+        case "Demo":
+            FlightController.ExecuteMessage("RequestFlight|1|transport|GPS:Start Point:48050.79:30398.66:23052.6:|127797482999529571|GPS:Target Point:48218.89:30616.29:22363.15:|91029766205012422");
             break;
 
          /*case "SetLCD":
