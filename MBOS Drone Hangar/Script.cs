@@ -1,6 +1,6 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.0.0";
-const String DATA_FORMAT = "1";
+const String VERSION = "1.2.0";
+const String DATA_FORMAT = "2";
 
 /**
 
@@ -10,12 +10,42 @@ Drone Hangar Manager.
 
 */
 
-public class DroneHangar
+public class Station
+{
+    public MBOS Sys;
+    public MyWaypointInfo FlightIn;
+
+    public Station(MBOS sys, MyWaypointInfo flightIn) {
+        Sys = sys;
+        FlightIn = flightIn;
+    }
+
+    public virtual void RegisterFlightControl() {
+        Sys.BroadCastTransceiver.SendMessage(
+            "RegisterStation|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
+        );
+    }
+
+    public virtual void ExecuteMessage(string message) {
+        List<String> parts = new List<String>(message.Split('|'));
+        String command = parts[0];
+        parts.RemoveAt(0);
+
+        switch(command) {
+            case "FlightControlReady":
+                RegisterFlightControl();
+                break;
+        }
+    }
+}
+
+public class DroneHangar : Station
 {
     public class Pod {
         public IMyShipConnector Connector;
         public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
         public long Drone = 0L;
+        public string Type = "none";
 
         public Pod(IMyShipConnector connector) {
             Connector = connector;
@@ -28,34 +58,42 @@ public class DroneHangar
             MBOS.Sys.LoadConfig(Connector.CustomData, ConfigList);
             String drone = MBOS.Sys.Config("Drone", ConfigList).Value;
             Drone = drone == String.Empty ? 0L : long.Parse(drone);
+            Type = MBOS.Sys.Config("Type", ConfigList).Value;
+            Type = Type == String.Empty ? Type : "none";
         }
 
         public void SaveConfig() {
             MBOS.Sys.Config("Drone", ConfigList).Value = Drone.ToString();
+            MBOS.Sys.Config("Type", ConfigList).Value = Type;
             MBOS.Sys.SaveConfig(Connector, ConfigList);
         }
 
     }
 
     public List<Pod> Pods = new List<Pod>();
-    public MyWaypointInfo FlightInPoint = MyWaypointInfo.Empty;
 
-    public DroneHangar(String flightInPoint) {
-        MBOS.ParseGPS(flightInPoint, out FlightInPoint);
+    public DroneHangar(MBOS sys, MyWaypointInfo flightIn) : base(sys, flightIn) {
         FindPods();
         BroadCastEmptySlots();
     }
 
-    public void ExecuteMessage(String message) {
+    public override void ExecuteMessage(String message) {
+        base.ExecuteMessage(message);
         List<String> parts = new List<String>(message.Split('|'));
         String command = parts[0];
         parts.RemoveAt(0);
 
         switch(command) {
             case "DroneNeedHome":
-                RegisterDrone(long.Parse(parts[0]));
+                RegisterDrone(long.Parse(parts[0]), parts[1]);
                 break;
         }
+    }
+
+    public override void RegisterFlightControl() {
+        Sys.BroadCastTransceiver.SendMessage(
+            "RegisterHangar|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
+        );
     }
 
     protected void FindPods() {
@@ -84,7 +122,7 @@ public class DroneHangar
 
     }
 
-    protected void RegisterDrone(long drone) {
+    protected void RegisterDrone(long drone, string type) {
         List<Pod> knownDrones = Pods.FindAll((Pod pod) => pod.Drone == drone);
         foreach(Pod pod in knownDrones) {
             pod.Drone = 0L;
@@ -96,13 +134,14 @@ public class DroneHangar
         }
         Pod registeredPod = emptyPods[0];
         registeredPod.Drone = drone;
+        registeredPod.Type = type;
         registeredPod.SaveConfig();
 
         Vector3D dockAt = registeredPod.Connector.CubeGrid.GridIntegerToWorld(registeredPod.Connector.Position);
         MBOS.Sys.Transceiver.SendMessage(
             registeredPod.Drone, 
             "DroneRegisteredAt|" + MBOS.Sys.EntityId.ToString()
-            + "|" + FlightInPoint.ToString()
+            + "|" + FlightIn.ToString()
             + ">" + (new MyWaypointInfo("Dock At", dockAt)).ToString()
         );
 
@@ -130,14 +169,21 @@ public void InitProgram()
 {
     Sys.LoadConfig();
 
-    String waypoint = Sys.Config("FlightInPoint").Value;
+    String waypoint = Sys.Config("FlightIn").Value;
 
     if (waypoint == String.Empty) {
         Echo("Missing flight in point.\nRun FlightIn <GPS>");
         return;
     }
 
-    Hangar = new DroneHangar(waypoint);
+    MyWaypointInfo flightIn = MyWaypointInfo.Empty;
+    if(MBOS.ParseGPS(waypoint, out flightIn) == false) {
+        Echo("Wrong GPS for FlightIn stored. Run `FlightIn <GPS>`");
+        return;
+    }
+
+    Hangar = new DroneHangar(Sys, flightIn);
+    Hangar.RegisterFlightControl();
 
     Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -167,8 +213,9 @@ public void UpdateInfo()
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
-        + "Flight in point: " + Hangar.FlightInPoint.ToString() + "\n"
+        + "Flight in point: " + Hangar.FlightIn.ToString() + "\n"
         + "Number of pods: " + Hangar.Pods.Count.ToString() + "\n"
+        + "Unused pods: " + Hangar.Pods.FindAll((DroneHangar.Pod pod) => pod.Drone == 0L).Count.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() +"\n"
         + "----------------------------------------\n"
@@ -189,7 +236,7 @@ public void ReadArgument(String args)
         case "FlightIn":
             MyWaypointInfo gps = MyWaypointInfo.Empty;
             if(MBOS.ParseGPS(allArgs, out gps)) {
-                Sys.Config("FlightInPoint").Value = gps.ToString();
+                Sys.Config("FlightIn").Value = gps.ToString();
                 Hangar = null;
                 Echo("Flight In Point set to: " + gps.ToString());
             } else {

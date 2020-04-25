@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "2.0.0";
+const String VERSION = "2.1.0";
 const String DATA_FORMAT = "2.0";
 
 /**
@@ -295,7 +295,7 @@ public class TransportDrone
 
     protected void RequestHangar(long receiver)
     {
-        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString());
+        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString() + "|transport");
     }
 
     protected void RegisterHangar(String hangar, String homepath)
@@ -383,7 +383,7 @@ public void InitProgram()
     Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
     
     if (hangar == 0L) {
-        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString());
+        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString() + "|transport");
     } else if(Drone.Mode == "None" || Drone.Mode == "Init") {
         Drone.GoHome();
     }
@@ -485,6 +485,11 @@ public void ReadArgument(String args)
                 InitProgram();
             }
             Echo("RemoteControl '" + allArgs + "' configured.");
+            break;
+        case "NewHome":
+            Drone.Hangar = 0L;
+            Save();
+            InitProgram();
             break;
 
         case "ReceiveMessage":

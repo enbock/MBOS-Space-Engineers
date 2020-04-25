@@ -6,10 +6,11 @@ Manage a catalog of network available and needed resources.
 ### Process to request resource
 1. Consumer request amount of resource
 1. Manager reserve resource and order by producer
-   1. Manager create "transport mission" for mission manager
+   1. Manager create "transport mission(s)" for mission manager
 1. Producer reserve and do stock update
    1. When mission took resources, Product update stock again and reduce Reservation Quantity
-   1. Mission deliver resource to Consumer
+   1. When mission delivers resources, Consumer send.
+1. Mission Manager send mission done. Resource Manager remove mission. (TBD: Do we need a recheck of resource requirement?)
 
 ### Resources 
 Resource is a free text indentifier. The producer must provide slot to "fill" resource.
@@ -25,11 +26,11 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 [B] == Broad cast    
 [U] == Unicast
 ### Register producer
-* [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|{Single|Conatiner|Liquid}|<Volume>|<Waypoint>`
-* [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityId>`
+* [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|<Station-GridID>|{Single|Conatiner|Liquid}|<Volume>|<Waypoint>`
+* [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityID>`
 ### Register consumer
-* [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Waypoint>`
-* [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityId>`
+* [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Station-GridID>|<Waypoint>`
+* [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityID>`
 ### Repeat registrations
 * [B] Manager> `ReRegisterProducer`
 * [B] Manager> `ReRegisterConsumer`
@@ -38,3 +39,9 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 ### Request and Order resource
 * [U] C-Station> `RequestResource|<Resource Name>|<Quantity>|<Waypoint>`
 * [U] Manager to Producer> `OrderResource|<Resource Name>|<Quantity>`
+### Request mission
+* [B]> `RequestMission|<Requester Station-ID>|<Mission-ID>|<Drone Type>|<Producer Waypoint>|<Producer Station-GridID>|<Consumer Waypoint>|<Consumer Station-GridID>`
+### Delivery update
+* [U] C-Station> `ResourceDelivered|<Resource Name>|<Quantity>|<Waypoint>`
+### Complete mission
+* [B]< `MissionCompleted|<Mission-ID>`

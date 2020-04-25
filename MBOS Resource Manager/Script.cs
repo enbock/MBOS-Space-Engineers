@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.0.0";
+const String VERSION = "1.1.0";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -13,6 +13,7 @@ public enum UnitType
 public class ResourceManager {
     public class Producer {
         public long EntityId;
+        public long GridId;
         public String Unit = String.Empty;
         public UnitType Type = UnitType.Container;
         public double VolumePerUnit = 0.0;
@@ -20,8 +21,9 @@ public class ResourceManager {
         public int Stock = 0;
         public int Reserved = 0;
 
-        public Producer(long entityId, String unit, UnitType type, double volumePerUnit, MyWaypointInfo waypoint) {
+        public Producer(long entityId, long gridId, String unit, UnitType type, double volumePerUnit, MyWaypointInfo waypoint) {
             EntityId = entityId;
+            GridId = gridId;
             Unit = unit;
             Type = type;
             VolumePerUnit = volumePerUnit;
@@ -32,16 +34,18 @@ public class ResourceManager {
             List<String> parts = new List<String>(data.Split('*'));
 
             EntityId = long.Parse(parts[0]);
-            Unit = parts[1];
-            Type = (UnitType) Enum.Parse(typeof(UnitType), parts[2]);
-            VolumePerUnit = double.Parse(parts[3]);
-            MBOS.ParseGPS(parts[4], out Waypoint);
-            Stock = int.Parse(parts[5]);
-            Reserved = int.Parse(parts[6]);
+            GridId = long.Parse(parts[1]);
+            Unit = parts[2];
+            Type = (UnitType) Enum.Parse(typeof(UnitType), parts[3]);
+            VolumePerUnit = double.Parse(parts[4]);
+            MBOS.ParseGPS(parts[5], out Waypoint);
+            Stock = int.Parse(parts[6]);
+            Reserved = int.Parse(parts[7]);
         }
 
         public override String ToString() {
             return EntityId.ToString()
+                + "*" + GridId.ToString()
                 + "*" + Unit.ToString()
                 + "*" + Type.ToString()
                 + "*" + VolumePerUnit.ToString()
@@ -54,11 +58,13 @@ public class ResourceManager {
 
     public class Consumer {
         public long EntityId;
+        public long GridId;
         public String Unit = String.Empty;
         public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
         
-        public Consumer(long entityId, String unit, MyWaypointInfo waypoint) {
+        public Consumer(long entityId, long gridId, String unit, MyWaypointInfo waypoint) {
             EntityId = entityId;
+            GridId = gridId;
             Unit = unit;
             Waypoint = waypoint;
         }
@@ -67,12 +73,44 @@ public class ResourceManager {
             List<String> parts = new List<String>(data.Split('*'));
 
             EntityId = long.Parse(parts[0]);
+            GridId = long.Parse(parts[1]);
+            Unit = parts[2];
+            MBOS.ParseGPS(parts[3], out Waypoint);
+        }
+
+        public override String ToString() {
+            return EntityId.ToString()
+                + "*" + GridId.ToString()
+                + "*" + Unit.ToString()
+                + "*" + Waypoint.ToString()
+            ;
+        }
+    }
+
+    public class DeliverMission {
+        public long Id;
+        public String Unit = String.Empty;
+        public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
+        public MBOS Sys;
+
+        public DeliverMission(MBOS sys, String unit, MyWaypointInfo waypoint) {
+            Sys = sys;
+            Id = System.DateTime.Now.ToBinary();
+            Unit = unit;
+            Waypoint = waypoint;
+        }
+
+        public DeliverMission(MBOS sys, String data) {
+            Sys = sys;
+            List<String> parts = new List<String>(data.Split('*'));
+
+            Id = long.Parse(parts[0]);
             Unit = parts[1];
             MBOS.ParseGPS(parts[2], out Waypoint);
         }
 
         public override String ToString() {
-            return EntityId.ToString()
+            return Id.ToString()
                 + "*" + Unit.ToString()
                 + "*" + Waypoint.ToString()
             ;
@@ -81,6 +119,7 @@ public class ResourceManager {
 
     public List<Producer> Producers = new List<Producer>();
     public List<Consumer> Consumers = new List<Consumer>();
+    public List<DeliverMission> Missions = new List<DeliverMission>();
     public IMyTextPanel Screen;
     MBOS Sys;
 
@@ -100,6 +139,11 @@ public class ResourceManager {
             if(line != String.Empty) Consumers.Add(new Consumer(line));
         });
 
+        list = new List<String>(Sys.Config("Missions").Value.Split('|'));
+        list.ForEach(delegate(String line) { 
+            if(line != String.Empty) Missions.Add(new DeliverMission(Sys, line));
+        });
+
         Screen = Sys.Config("Screen").Block as IMyTextPanel;
     }
 
@@ -111,6 +155,11 @@ public class ResourceManager {
         list.Clear();
         Consumers.ForEach((Consumer consumer) => list.Add(consumer.ToString()));
         Sys.Config("Consumers").Value = String.Join("|", list.ToArray());
+
+        list.Clear();
+        Missions.ForEach((DeliverMission mission) => list.Add(mission.ToString()));
+        Sys.Config("Missions").Value = String.Join("|", list.ToArray());
+
         Sys.Config("Screen").Block = Screen;
     }
 
@@ -168,9 +217,10 @@ public class ResourceManager {
 
     protected void RegisterProducer(List<String> parts) {
         long entityId = long.Parse(parts[1]);
+        long gridId = long.Parse(parts[2]);
         String unit = parts[0];
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
-        MBOS.ParseGPS(parts[4], out waypoint);
+        MBOS.ParseGPS(parts[5], out waypoint);
     
         List<Producer> foundProducers = Producers.FindAll(
             (Producer item) => item.EntityId == entityId && item.Unit == unit && item.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
@@ -179,9 +229,10 @@ public class ResourceManager {
         if (foundProducers.Count == 0) {
             newProducer = new Producer(
                 entityId,
+                gridId,
                 unit,
-                (UnitType) Enum.Parse(typeof(UnitType), parts[2]),
-                double.Parse(parts[3]),
+                (UnitType) Enum.Parse(typeof(UnitType), parts[3]),
+                double.Parse(parts[4]),
                 waypoint
             );
             Producers.Add(newProducer);
@@ -211,15 +262,16 @@ public class ResourceManager {
 
     protected void RegisterConsumer(List<String> parts) {
         long entityId = long.Parse(parts[1]);
+        long gridId = long.Parse(parts[2]);
         String unit = parts[0];
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
-        MBOS.ParseGPS(parts[2], out waypoint);
+        MBOS.ParseGPS(parts[3], out waypoint);
         List<Consumer> foundConsumers = Consumers.FindAll(
             (Consumer item) => item.EntityId == entityId && item.Unit == unit && item.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
         );
         Consumer newConsumer;
         if (foundConsumers.Count == 0) {
-            newConsumer = new Consumer(entityId, unit, waypoint);
+            newConsumer = new Consumer(entityId, gridId, unit, waypoint);
             Consumers.Add(newConsumer);
         } else {
             newConsumer = foundConsumers[0];
@@ -287,6 +339,7 @@ public void UpdateInfo()
         + "\n"
         + "Registered Producers: " + Manager.Producers.Count.ToString() + "\n"
         + "Registered Consumers: " + Manager.Consumers.Count.ToString() + "\n"
+        + "Delivery Missions: " + Manager.Missions.Count.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() + "\n"
         + "----------------------------------------\n"
