@@ -1,10 +1,10 @@
 const String NAME = "Producer";
-const String VERSION = "1.0.0";
+const String VERSION = "1.1.1";
 const String DATA_FORMAT = "2";
 
 /*
     Register examples:
-        Register ChargedEnergyCell Battery 1 Power Charger #6 GPS:DockAt #6:48071.05:30388.26:23037.28:
+        Register ChargedEnergyCell Battery 1 Power Charger #1
         Register EmptyEnergyCell Single 1 Charge Connector #1
 */
 
@@ -13,7 +13,7 @@ public enum UnitType
     Single = 1,
     Container = 2,
     Liquid = 3,
-    Battery = 4 // same a single but with battery check
+    Battery = 4 // same a single but with battery filled check
 }
 
 public class Manager
@@ -25,6 +25,7 @@ public class Manager
         public double VolumePerUnit = 1.0;
         public IMyShipConnector Connector;
         public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
+        public MyWaypointInfo ConnectedWaypoint = MyWaypointInfo.Empty;
         public int Stock = 0;
         public long RegisteredByManager = 0;
         public int Reservation = 0;
@@ -36,6 +37,7 @@ public class Manager
             VolumePerUnit = volumePerUnit;
             Connector = connector;
             Waypoint = waypoint;
+            ConnectedWaypoint = waypoint;
         }
 
         public Resource(MBOS system, String data) {
@@ -49,6 +51,9 @@ public class Manager
             Stock = int.Parse(parts[5]);
             RegisteredByManager = long.Parse(parts[6]);
             Reservation = int.Parse(parts[7]);
+            if(parts.Count < 9 || MBOS.ParseGPS(parts[8], out ConnectedWaypoint) == false) {
+                ConnectedWaypoint = Waypoint;
+            };
         }
 
         public override String ToString() {
@@ -60,6 +65,7 @@ public class Manager
                 + "*" + Stock.ToString()
                 + "*" + RegisteredByManager.ToString()
                 + "*" + Reservation.ToString()
+                + "*" + ConnectedWaypoint.ToString()
             ;
         }
 
@@ -73,10 +79,10 @@ public class Manager
         protected void UpdateStock(MBOS system) {
             switch(Type) {
                 case UnitType.Single:
-                    Stock = Connector.Status == SingleUnitStockWhen ? 1 : 0;
+                    Stock = Connector.IsWorking && Connector.Status == SingleUnitStockWhen ? 1 : 0;
                     break;
                 case UnitType.Battery:
-                    if (Connector.Status != MyShipConnectorStatus.Connected) {
+                    if (Connector.IsWorking == false || Connector.Status != MyShipConnectorStatus.Connected) {
                         Stock = 0;
                         break;
                     }
@@ -149,6 +155,7 @@ public class Manager
             newResource = new Resource(unit, type, volumePerUnit, connector, waypoint);
             Resources.Add(newResource);
         }
+        newResource.SingleUnitStockWhen = SingleUnitStockWhen;
 
         BroadCastResource(newResource);
 
@@ -197,6 +204,39 @@ public class Manager
         });
     }
 
+    public void UpgradeResourceWaypoints() {
+        Resources.ForEach(
+            delegate(Resource resource) {
+                if (
+                    (resource.Connector.Status == MyShipConnectorStatus.Connected || resource.Connector.Status == MyShipConnectorStatus.Connectable)
+                    && resource.Waypoint.Equals(resource.ConnectedWaypoint)
+                ) {
+                    List<IMyShipConnector> otherFreeConnectors = new List<IMyShipConnector>();
+                    MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+                        otherFreeConnectors, 
+                        (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
+                            && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
+                    );
+                    if (otherFreeConnectors.Count == 0) return;
+                    SendUpdate(resource, 0);
+                    resource.ConnectedWaypoint = new MyWaypointInfo(
+                        resource.Unit + " Connected Element Target", 
+                        otherFreeConnectors[0].CubeGrid.GridIntegerToWorld(otherFreeConnectors[0].Position)
+                    );
+                    BroadCastResource(resource);
+                }
+                if (
+                    (resource.Connector.Status != MyShipConnectorStatus.Connected && resource.Connector.Status != MyShipConnectorStatus.Connectable)
+                    && resource.Waypoint.Equals(resource.ConnectedWaypoint) == false
+                ) {
+                    SendUpdate(resource, 0);
+                    resource.ConnectedWaypoint = resource.Waypoint;
+                    BroadCastResource(resource);
+                }
+            }
+        );
+    }
+
     protected void Load() {
         String singleStockWhen = System.Config("SingleUnitStockWhen").Value;
         if (singleStockWhen != String.Empty) {
@@ -213,14 +253,14 @@ public class Manager
         });
     }
 
-    protected void SendUpdate(Resource resource) {
+    protected void SendUpdate(Resource resource, int overrideStock = -1) {
         System.Transceiver.SendMessage(
             resource.RegisteredByManager,
             "UpdateResourceStock|" + resource.Unit 
-            + "|" + resource.Stock.ToString()
+            + "|" + (overrideStock != -1 ? overrideStock.ToString() : resource.Stock.ToString())
             + "|" + resource.Reservation.ToString()
             + "|" + System.EntityId.ToString()
-            + "|" + resource.Waypoint.ToString()
+            + "|" + resource.ConnectedWaypoint.ToString()
         );
     }
 
@@ -231,7 +271,7 @@ public class Manager
             + "|" + System.GridId
             + "|" + resource.Type.ToString()
             + "|" + resource.VolumePerUnit.ToString()
-            + "|" + resource.Waypoint.ToString()
+            + "|" + resource.ConnectedWaypoint.ToString()
         );
     }
     protected void ProducerRegistered(String unit, long managerId) {
@@ -281,6 +321,7 @@ public void Main(String argument, UpdateType updateSource)
     }
 
     ProducerManager.UpdateStock();
+    ProducerManager.UpgradeResourceWaypoints();
     Save();
     UpdateInfo();
 }
@@ -338,6 +379,7 @@ public void ReadArgument(String args)
         case "SingleUpdateStockWhen":
             ProducerManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
             ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = ProducerManager.SingleUnitStockWhen);
+            Echo("Single Unit stock filled when case of " + ProducerManager.SingleUnitStockWhen);
             break;
         case "Reset":
             ProducerManager.Resources.Clear();

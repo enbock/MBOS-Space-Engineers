@@ -5,14 +5,15 @@ const String DATA_FORMAT = "1";
 /*
     Register examples:
         Register EmptyEnergyCell Single 1 Power Charger #1
-        Register ChargedEnergyCell Single 1 Charge Connector #1
+        Register ChargedEnergyCell Battery 1 Charge Connector #1
 */
 
 public enum UnitType
 {
     Single = 1,
     Container = 2,
-    Liquid = 3
+    Liquid = 3,
+    Battery = 4
 }
 
 public class Manager
@@ -26,7 +27,6 @@ public class Manager
         public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
         public int Stock = 0;
         public long RegisteredByManager = 0;
-        public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
         
         public Resource(String unit, UnitType type, int requiredStock, IMyShipConnector connector, MyWaypointInfo waypoint) {
             Unit = unit;
@@ -69,14 +69,20 @@ public class Manager
         protected void UpdateStock(MBOS system) {
             switch(Type) {
                 case UnitType.Single:
-                    Stock = Connector.Status == SingleUnitStockWhen ? 1 : 0;
+                case UnitType.Battery:
+                    Stock = (
+                        Connector.IsWorking == false
+                        || (
+                            Connector.Status == MyShipConnectorStatus.Unconnected 
+                            && Connector.Status != MyShipConnectorStatus.Connectable 
+                        )
+                    ) ? 0 : 1;
                     break;
             }
         }
     }
 
     public List<Resource> Resources = new List<Resource>();
-    public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
     protected MBOS System;
 
     public Manager(MBOS system) {
@@ -133,7 +139,6 @@ public class Manager
         List<String> list = new List<String>();
         Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
         System.Config("Resources").Value = String.Join("|", list.ToArray());
-        System.Config("SingleUnitStockWhen").Value = SingleUnitStockWhen.ToString();
     }
 
     public void ExecuteMessage(String message) {
@@ -155,9 +160,18 @@ public class Manager
     {
         Resources.ForEach(delegate(Resource resource) {
             if(resource.RegisteredByManager == 0) return;
+            int oldStock = resource.Stock;
             if(resource.StockHasChanged(System) == false && force == false) return;
 
-            if(resource.Stock >= resource.RequiredStock) return;
+            if(resource.Stock >= resource.RequiredStock) {
+                int deliveredStock = resource.Stock - oldStock;
+
+                System.Transceiver.SendMessage(
+                    resource.RegisteredByManager,
+                    "ResourceDelivered|" + resource.Unit + "|" + deliveredStock.ToString() + "|" + resource.Waypoint.ToString()
+                );
+                return;
+            }
 
             int neededQuantity = resource.RequiredStock - resource.Stock;
 
@@ -169,15 +183,10 @@ public class Manager
     }
 
     protected void Load() {
-        String singleStockWhen = System.Config("SingleUnitStockWhen").Value;
-        if (singleStockWhen != String.Empty) {
-            SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhen);
-        }
         List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
                 Resource newResource = new Resource(System, line);
-                newResource.SingleUnitStockWhen = SingleUnitStockWhen;
                 Resources.Add(newResource);
                 BroadCastResource(newResource);
             }
@@ -291,10 +300,6 @@ public void ReadArgument(String args)
             } else {
                 Echo("Registration failed.");
             }
-            break;
-        case "SingleUpdateStockWhen":
-            ConsumerManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
-            ConsumerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = ConsumerManager.SingleUnitStockWhen);
             break;
         case "Reset":
             ConsumerManager.Resources.Clear();

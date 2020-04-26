@@ -1,5 +1,5 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.0.0";
+const String VERSION = "1.0.3";
 const String DATA_FORMAT = "1";
 
 /*
@@ -208,45 +208,68 @@ public class FlightControl
         MyWaypointInfo targetWaypoint = MyWaypointInfo.Empty;
         if(MBOS.ParseGPS(parts[4], out targetWaypoint) == false) return;
 
-        string flightPath = "";
         List<Station> foundStations;
-
-        // Search hangar to start grid
-        List<FlightPath> foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == hangar.GridId && path.TargetGridId == startGrid);
-        if (foundPaths.Count > 0) {
-            flightPath += foundPaths[0].WaypointsToString();
+        Station startStation;
+        Station targetStation;
+        foundStations = Stations.FindAll((Station stationItem) => stationItem.GridId == startGrid);
+        if(foundStations.Count == 0) {
+            foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == startGrid);
+            if(foundHangars.Count == 0) {
+                MBOS.Sys.Echo("ERROR: Start station not found: " + startGrid);
+                return;
+            }
+            startStation = (Station) foundHangars[0];
         } else {
-            flightPath += hangar.FlightIn.ToString() + FallBackFlightPathWaypoint.ToString();
-            
-            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
-            if(foundStations.Count == 0) return;
-            flightPath += foundStations[0].FlightIn.ToString();
+            startStation = foundStations[0];
+        };
+        foundStations = Stations.FindAll((Station stationItem) => stationItem.GridId == targetGrid);
+        if(foundStations.Count == 0) {
+            foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == targetGrid);
+            if(foundHangars.Count == 0) {
+                MBOS.Sys.Echo("ERROR: Target station not found: " + targetGrid);
+                return;
+            }
+            targetStation = (Station) foundHangars[0];
+        } else {
+            targetStation = foundStations[0];
+        };
+
+        List<FlightPath> foundPaths;
+        string flightPath = hangar.FlightIn.ToString();
+
+        if (hangar.GridId != startStation.GridId) {
+            // Search hangar to start grid
+            foundPaths = FlightPaths.FindAll(
+                (FlightPath path) => path.StartGridId == hangar.GridId && path.TargetGridId == startStation.GridId
+            );
+            if (foundPaths.Count > 0) {
+                flightPath += foundPaths[0].WaypointsToString();
+            } else {
+                flightPath += FallBackFlightPathWaypoint.ToString();
+            }
         }
-        flightPath += startWaypoint.ToString();
+        flightPath += startStation.FlightIn.ToString() + ">" + startWaypoint.ToString() + "<" + startStation.FlightIn.ToString();
         
         // Search start grid to target grid
-        foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == startGrid && path.TargetGridId == targetGrid);
+        foundPaths = FlightPaths.FindAll(
+            (FlightPath path) => path.StartGridId == startStation.GridId && path.TargetGridId == targetStation.GridId
+        );
         if (foundPaths.Count > 0) {
             flightPath += foundPaths[0].WaypointsToString();
         } else {
-            foundStations = Stations.FindAll((Station station) => station.GridId == startGrid);
-            if(foundStations.Count == 0) return;
-            flightPath += foundStations[0].FlightIn.ToString() + FallBackFlightPathWaypoint.ToString();
-            
-            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
-            if(foundStations.Count == 0) return;
-            flightPath += foundStations[0].FlightIn.ToString();
+            flightPath += FallBackFlightPathWaypoint.ToString();
         }
-        flightPath += targetWaypoint.ToString();
+        flightPath += targetStation.FlightIn.ToString() + ">" + targetWaypoint.ToString() + "<" + targetStation.FlightIn.ToString();
 
-        // Search target grid to hangar
-        foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == targetGrid && path.TargetGridId == hangar.GridId);
-        if (foundPaths.Count > 0) {
-            flightPath += foundPaths[0].WaypointsToString();
-        } else {
-            foundStations = Stations.FindAll((Station station) => station.GridId == targetGrid);
-            if(foundStations.Count == 0) return;
-            flightPath += foundStations[0].FlightIn.ToString() + FallBackFlightPathWaypoint.ToString() + hangar.FlightIn.ToString();
+        if (targetStation.GridId != hangar.GridId) {
+            // Search target grid to hangar
+            foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == targetStation.GridId && path.TargetGridId == hangar.GridId);
+            if (foundPaths.Count > 0) {
+                flightPath += foundPaths[0].WaypointsToString();
+            } else {
+                flightPath += FallBackFlightPathWaypoint.ToString();
+            }
+            flightPath += hangar.FlightIn.ToString();
         }
 
         Sys.Transceiver.SendMessage(hangar.EntityId, "RequestTransport|" + missionId + "|" + type + "|" + flightPath);

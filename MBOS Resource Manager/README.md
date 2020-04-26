@@ -26,7 +26,7 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 [B] == Broad cast    
 [U] == Unicast
 ### Register producer
-* [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|<Station-GridID>|{Single|Conatiner|Liquid}|<Volume>|<Waypoint>`
+* [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|<Station-GridID>|{Single|Conatiner|Liquid|Battery}|<Volume>|<Waypoint>`
 * [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityID>`
 ### Register consumer
 * [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Station-GridID>|<Waypoint>`
@@ -39,8 +39,8 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 ### Request and Order resource
 * [U] C-Station> `RequestResource|<Resource Name>|<Quantity>|<Waypoint>`
 * [U] Manager to Producer> `OrderResource|<Resource Name>|<Quantity>`
-### Request mission
-* [B]> `RequestMission|<Requester Station-ID>|<Mission-ID>|<Drone Type>|<Producer Waypoint>|<Producer Station-GridID>|<Consumer Waypoint>|<Consumer Station-GridID>`
+### Request flight path
+* [B] Manager to FlightControl> `RequestFlight|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
 ### Delivery update
 * [U] C-Station> `ResourceDelivered|<Resource Name>|<Quantity>|<Waypoint>`
 ### Complete mission

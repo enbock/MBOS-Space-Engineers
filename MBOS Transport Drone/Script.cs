@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "2.1.0";
+const String VERSION = "2.1.3";
 const String DATA_FORMAT = "2.0";
 
 /**
@@ -112,7 +112,7 @@ public class TransportDrone
             case "AddFlightPath":
                 AddFlightPath(stack[0]);
                 break;
-            case "Start":
+            case "StartDrone":
                 Start();
                 break;
             case "DroneHangarHasPodsAvailable":
@@ -185,8 +185,9 @@ public class TransportDrone
 
     protected void CheckFlight()
     {
-        Distance = Vector3D.Distance(RemoteControl.GetPosition(), Target);
-        double traveled = Vector3D.Distance(RemoteControl.GetPosition(), StartPoint);
+        Vector3D offset = CalculateConnectorOffset();
+        Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
+        double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
         if (
             (Distance > (Mode == "Direct" ? 0.5 : 5.0)) 
@@ -203,11 +204,6 @@ public class TransportDrone
 
         switch(Mode) {
             case "Direct":
-                if (FlightPaths.Count > 0) {
-                    Mark = DateTime.Now.AddSeconds(5);
-                    Mode = "Mark";
-                    break;
-                }
                 Dock();
                 break;
             case "Flight":
@@ -234,7 +230,7 @@ public class TransportDrone
                 break;
             case "Mark":
                 if (FlightPaths.Count > 0) {
-                    if (Connector.Status == MyShipConnectorStatus.Connected) {
+                    if (IsHomeConnected()) {
                         StartFlight();
                     } else {
                         FlightNextPath();
@@ -268,7 +264,7 @@ public class TransportDrone
         RemoteControl.SetCollisionAvoidance(false);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
-        AddWaypointWithConnectorOffset(RemoteControl, waypoint);
+        AddWaypointWithConnectorOffset(waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
     }
@@ -288,7 +284,7 @@ public class TransportDrone
         RemoteControl.ClearWaypoints();
 
         foreach(MyWaypointInfo waypoint in CurrentPath.Waypoints) {
-            AddWaypointWithConnectorOffset(RemoteControl, waypoint);
+            AddWaypointWithConnectorOffset(waypoint);
         }
         
         RemoteControl.SetAutoPilotEnabled(true);
@@ -307,9 +303,7 @@ public class TransportDrone
         }
     }
 
-    protected void AddWaypointWithConnectorOffset(IMyRemoteControl remoteControl, MyWaypointInfo waypoint) {
-        Vector3D coords = new Vector3D(waypoint.Coords);
-
+    protected Vector3D CalculateConnectorOffset() {
         IMyShipConnector connector = Connector;
         if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
             List<IMyShipConnector> elementBottomConnectors = new List<IMyShipConnector>();
@@ -323,10 +317,16 @@ public class TransportDrone
             }
         }
         
-        // Add offset
-        coords += (RemoteControl.GetPosition() - connector.GetPosition());
+        return new Vector3D(RemoteControl.GetPosition() - connector.GetPosition());
+    }
 
-        remoteControl.AddWaypoint(coords, waypoint.Name);
+    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {
+        Vector3D coords = new Vector3D(waypoint.Coords);
+
+        // Add offset
+        coords += CalculateConnectorOffset();
+
+        RemoteControl.AddWaypoint(coords, waypoint.Name);
     }
 
     protected void RequestHangar(long receiver)

@@ -13,3 +13,16 @@ Tip: Use the stabilization script on planets.
 *Control chars*:
 * `<` Mark a new path segment
 * `>` Mark GPS to dock(precision) mode (real docking is doing home only). Dock Mode GPS must be the last of a path segment
+
+## Radio Transmission
+### Add flight path
+* [U]< `AddFlightPath|<FlightPath>`
+### Start drone
+* [U]< `StartDrone`
+### Register at Drone Hangar by Hangar action
+* [B]< `DroneHangarHasPodsAvailable|<Hangard-EntityID>`
+* [U]> `DroneNeedHome|<Drone-EntityID|transport`
+* [U]< `DroneRegisteredAt|<Hangar-EntityID>|<FlightPath to Home>`
+### Register at Drone Hangar by Drone action (start after produced)
+* [B]> `DroneNeedHome|<Drone-EntityID|transport`
+* [U]< `DroneRegisteredAt|<Hangar-EntityID>|<FlightPath to Home>`

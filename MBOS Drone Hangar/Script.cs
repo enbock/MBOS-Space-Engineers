@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.2.0";
+const String VERSION = "1.3.2";
 const String DATA_FORMAT = "2";
 
 /**
@@ -41,7 +41,8 @@ public class Station
 
 public class DroneHangar : Station
 {
-    public class Pod {
+    public class Pod 
+    {
         public IMyShipConnector Connector;
         public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
         public long Drone = 0L;
@@ -70,11 +71,47 @@ public class DroneHangar : Station
 
     }
 
+    public class DeliveryMission 
+    {
+        public string MissionId;
+        public string DroneType;
+        public string FlightPath;
+        public long Drone = 0L;
+        public Pod Pod;
+        public bool Started = false;
+        
+        public DeliveryMission(string missionId, string droneType, string flightPath) {
+            MissionId = missionId;
+            DroneType = droneType;
+            FlightPath = flightPath;
+        }
+        
+        public DeliveryMission(string data) {
+            List<String> parts = new List<String>(data.Split('*'));
+            MissionId = parts[0];
+            DroneType = parts[1];
+            FlightPath = parts[2];
+            Drone = long.Parse(parts[3]);
+            Started = parts[4] == "Y";
+        }
+
+        public override String ToString() {
+            return MissionId
+                + "*" + DroneType
+                + "*" + FlightPath
+                + "*" + Drone.ToString()
+                + "*" + (Started ? "Y" : "N")
+            ;
+        }
+    }
+
     public List<Pod> Pods = new List<Pod>();
+    public List<DeliveryMission> Missions = new List<DeliveryMission>();
 
     public DroneHangar(MBOS sys, MyWaypointInfo flightIn) : base(sys, flightIn) {
         FindPods();
         BroadCastEmptySlots();
+        Load();
     }
 
     public override void ExecuteMessage(String message) {
@@ -87,12 +124,38 @@ public class DroneHangar : Station
             case "DroneNeedHome":
                 RegisterDrone(long.Parse(parts[0]), parts[1]);
                 break;
+            case "RequestTransport":
+                RequestTransport(parts);
+                break;
         }
     }
 
     public override void RegisterFlightControl() {
         Sys.BroadCastTransceiver.SendMessage(
             "RegisterHangar|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
+        );
+    }
+
+    public void Save() {
+        List<String> missions = new List<String>();
+        Missions.ForEach((DeliveryMission mission) => missions.Add(mission.ToString()));
+        Sys.Config("Missions").Value = String.Join("|", missions.ToArray());
+    }
+
+    protected void Load()
+    {
+        Missions.Clear();
+        List<String> missions = new List<String>(Sys.Config("Missions").Value.Split('|'));
+        missions.ForEach(delegate(String line) {
+            if(line != String.Empty) Missions.Add(new DeliveryMission(line));
+        });
+
+        Missions.ForEach(
+            delegate(DeliveryMission mission) {
+                List<Pod> foundPods = Pods.FindAll((Pod podItem) => podItem.Drone == mission.Drone);
+                if (foundPods.Count == 0) return;
+                mission.Pod = foundPods[0];
+            }
         );
     }
 
@@ -147,6 +210,77 @@ public class DroneHangar : Station
 
         MBOS.Sys.Echo("Drone " + drone.ToString() + " registered.");
     }
+
+    protected void RequestTransport(List<string> parts) {
+        string missionId = parts[0];
+        string droneType = parts[1];
+        string flightPath = parts[2];
+        
+        List<DeliveryMission> foundMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.MissionId == missionId);
+        if(foundMissions.Count > 0) {
+            MBOS.Sys.Echo("Mission already registered: " + missionId);
+        }
+        DeliveryMission newMission = new DeliveryMission(missionId, droneType, flightPath);
+        Missions.Add(newMission);
+
+        CheckMissions();
+    }
+
+    public void CheckMissions()
+    {
+        CheckHomeCommingMissions();
+        CheckStartingMissions();
+        SearchAssingableMissions();
+    }
+
+    protected void CheckHomeCommingMissions()
+    {
+        List<DeliveryMission> runningMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Started == true);
+        runningMissions.ForEach(
+            delegate(DeliveryMission mission) {
+                if(mission.Pod.Connector.Status != MyShipConnectorStatus.Connected) return;
+
+                Missions.Remove(mission);
+                MBOS.Sys.BroadCastTransceiver.SendMessage("MissionCompleted|" + mission.MissionId);
+            }
+        );
+    }
+    
+    protected void CheckStartingMissions()
+    {
+        List<DeliveryMission> startingMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Started == false && missionItem.Pod != null);
+        
+        startingMissions.ForEach(
+            delegate(DeliveryMission mission) {
+                if (mission.Pod.Connector.Status == MyShipConnectorStatus.Connected) return;
+                mission.Started = true;
+            }
+        );
+    }
+    
+    protected void SearchAssingableMissions()
+    {
+        List<DeliveryMission> queuedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == null);
+        
+        queuedMissions.ForEach(
+            delegate(DeliveryMission mission) {
+                List<Pod> freePods = Pods.FindAll(
+                    delegate(Pod podItem) {
+                        List<DeliveryMission> assignedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == podItem);
+
+                        return assignedMissions.Count == 0;
+                    } 
+                );
+                if (freePods.Count == 0) return;
+                Pod pod = freePods[0];
+                mission.Drone = pod.Drone;
+                mission.Pod = pod;
+
+                MBOS.Sys.Transceiver.SendMessage(mission.Drone, "AddFlightPath|" + mission.FlightPath);
+                MBOS.Sys.Transceiver.SendMessage(mission.Drone, "StartDrone");
+            }
+        );
+    }
 }
 
 DroneHangar Hangar;
@@ -162,6 +296,9 @@ public Program()
 
 public void Save()
 {   
+    if (Hangar != null) {
+        Hangar.Save();
+    }
     Sys.SaveConfig();
 }
 
@@ -185,9 +322,8 @@ public void InitProgram()
     Hangar = new DroneHangar(Sys, flightIn);
     Hangar.RegisterFlightControl();
 
-    Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update10;
     Echo("Program initialized.");
-    UpdateInfo();
 }
 
 
@@ -203,8 +339,10 @@ public void Main(String argument, UpdateType updateSource)
         }
     }
 
+    Hangar.CheckMissions();
     Save();
     UpdateInfo();
+    Runtime.UpdateFrequency = Hangar.Missions.Count > 0 ? UpdateFrequency.Update100 : UpdateFrequency.None;
 }
 
 
@@ -218,6 +356,10 @@ public void UpdateInfo()
         + "Flight in point: " + Hangar.FlightIn.ToString() + "\n"
         + "Number of pods: " + Hangar.Pods.Count.ToString() + "\n"
         + "Unused pods: " + Hangar.Pods.FindAll((DroneHangar.Pod pod) => pod.Drone == 0L).Count.ToString() + "\n"
+        + "Missions(all): " + Hangar.Missions.Count.ToString() + "\n"
+        + "Queued Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Pod == null).Count.ToString() + "\n"
+        + "Assigned Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Pod != null && mission.Started == false).Count.ToString() + "\n"
+        + "Flying Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Started == true).Count.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic() +"\n"
         + "----------------------------------------\n"
