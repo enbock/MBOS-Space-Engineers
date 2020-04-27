@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.3.2";
+const String VERSION = "1.3.5";
 const String DATA_FORMAT = "2";
 
 /**
@@ -266,6 +266,10 @@ public class DroneHangar : Station
             delegate(DeliveryMission mission) {
                 List<Pod> freePods = Pods.FindAll(
                     delegate(Pod podItem) {
+                        IMyProgrammableBlock block = MBOS.Sys.GridTerminalSystem.GetBlockWithId(podItem.Drone) as IMyProgrammableBlock;
+                        if (block == null || podItem.Connector.Status != MyShipConnectorStatus.Connected) {
+                            return false;
+                        }
                         List<DeliveryMission> assignedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == podItem);
 
                         return assignedMissions.Count == 0;
@@ -397,8 +401,11 @@ public void ReadArgument(String args)
                 Hangar.ExecuteMessage(message);
             }
             break;
+        case "ClearMissions": 
+            Hangar.Missions.Clear();
+            break;
         default:
-            Echo("Available Commands: ");
+            Echo("Available Commands:\n   * FlightIn <GPS>\n");
             break;
     }
 }

@@ -38,7 +38,7 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 * [U] P-Station> `UpdateResourceStock|<Resource Name>|<Quantity>|<Reservation Quantity>|<Station-EntityID>|<Waypoint>`
 ### Request and Order resource
 * [U] C-Station> `RequestResource|<Resource Name>|<Quantity>|<Waypoint>`
-* [U] Manager to Producer> `OrderResource|<Resource Name>|<Quantity>`
+* [U] Manager to Producer> `OrderResource|<Resource Name>|<Quantity>|<Waypoint>`
 ### Request flight path
 * [B] Manager to FlightControl> `RequestFlight|<Mission-ID>|<Drone Type>|<Start Waypoint>|<Start Station-GridID>|<Target Waypoint>|<Target Station-GridID>`
 ### Delivery update

@@ -1,11 +1,13 @@
 const String NAME = "Producer";
-const String VERSION = "1.1.1";
+const String VERSION = "1.1.5";
 const String DATA_FORMAT = "2";
 
 /*
     Register examples:
         Register ChargedEnergyCell Battery 1 Power Charger #1
         Register EmptyEnergyCell Single 1 Charge Connector #1
+
+        TODO: Producer on Connectable mode should only "produce" in change of Connected to Connectable.
 */
 
 public enum UnitType
@@ -173,6 +175,7 @@ public class Manager
         List<String> parts = new List<String>(message.Split('|'));
         String command = parts[0];
         parts.RemoveAt(0);
+        MyWaypointInfo waypoint = MyWaypointInfo.Empty;
 
         switch(command) {
             case "ProducerRegistered":
@@ -180,6 +183,12 @@ public class Manager
                 break;
             case "ReRegisterProducer":
                 Resources.ForEach((Resource resource) => BroadCastResource(resource));
+                break;
+            case "OrderResource":
+                if(MBOS.ParseGPS(parts[2], out waypoint) == false) {
+                    MBOS.Sys.Echo("ERRROR: OrderResource delivers wrong waypoint: " + parts[2]);
+                }
+                OrderResource(parts[0], int.Parse(parts[1]), waypoint);
                 break;
         }
     }
@@ -194,7 +203,7 @@ public class Manager
             // Apply reservations
             switch(resource.Type) {
                 case UnitType.Single:
-                    if (resource.Stock == 0 && resource.Reservation == 1) {
+                    if (resource.Stock == 0 && resource.Reservation >= 1) {
                         resource.Reservation = 0;
                     }
                     break;
@@ -204,7 +213,7 @@ public class Manager
         });
     }
 
-    public void UpgradeResourceWaypoints() {
+    protected void UpgradeResourceWaypoints() {
         Resources.ForEach(
             delegate(Resource resource) {
                 if (
@@ -218,21 +227,18 @@ public class Manager
                             && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
                     );
                     if (otherFreeConnectors.Count == 0) return;
-                    SendUpdate(resource, 0);
                     resource.ConnectedWaypoint = new MyWaypointInfo(
                         resource.Unit + " Connected Element Target", 
                         otherFreeConnectors[0].CubeGrid.GridIntegerToWorld(otherFreeConnectors[0].Position)
                     );
                     BroadCastResource(resource);
                 }
-                if (
+                /*if (
                     (resource.Connector.Status != MyShipConnectorStatus.Connected && resource.Connector.Status != MyShipConnectorStatus.Connectable)
                     && resource.Waypoint.Equals(resource.ConnectedWaypoint) == false
                 ) {
-                    SendUpdate(resource, 0);
                     resource.ConnectedWaypoint = resource.Waypoint;
-                    BroadCastResource(resource);
-                }
+                }*/
             }
         );
     }
@@ -248,12 +254,14 @@ public class Manager
                 Resource newResource = new Resource(System, line);
                 newResource.SingleUnitStockWhen = SingleUnitStockWhen;
                 Resources.Add(newResource);
-                BroadCastResource(newResource);
             }
         });
     }
 
     protected void SendUpdate(Resource resource, int overrideStock = -1) {
+        UpgradeResourceWaypoints();
+        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) return; // message only connected waypoint
+
         System.Transceiver.SendMessage(
             resource.RegisteredByManager,
             "UpdateResourceStock|" + resource.Unit 
@@ -265,6 +273,8 @@ public class Manager
     }
 
     protected void BroadCastResource(Resource resource) {
+        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) return; // message only connected waypoint
+
         System.BroadCastTransceiver.SendMessage(
             "RegisterProducer|" + resource.Unit 
             + "|" + System.EntityId
@@ -274,12 +284,29 @@ public class Manager
             + "|" + resource.ConnectedWaypoint.ToString()
         );
     }
+
     protected void ProducerRegistered(String unit, long managerId) {
         Resources.ForEach(delegate(Resource resource){
             if (resource.Unit != unit) return;
             resource.RegisteredByManager = managerId;
             SendUpdate(resource);
         });
+    }
+    
+    protected void OrderResource(string unit, int quantity, MyWaypointInfo waypoint) {
+        List<Resource> foundResources = Resources.FindAll(
+            (Resource resourceItem) => resourceItem.Unit == unit && (
+                resourceItem.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
+                || resourceItem.ConnectedWaypoint.Coords.Equals(waypoint.Coords, 0.01)
+            )
+        );
+
+        if(foundResources.Count == 0) {
+            MBOS.Sys.Echo("ERROR: Requested order item not found for " + unit + " at " + waypoint.ToString());
+            return;
+        }
+
+        foundResources[0].Reservation += quantity;
     }
 }
 
@@ -321,7 +348,6 @@ public void Main(String argument, UpdateType updateSource)
     }
 
     ProducerManager.UpdateStock();
-    ProducerManager.UpgradeResourceWaypoints();
     Save();
     UpdateInfo();
 }
@@ -383,6 +409,10 @@ public void ReadArgument(String args)
             break;
         case "Reset":
             ProducerManager.Resources.Clear();
+            break;
+        case "ClearReservation":
+            ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.Reservation = 0);
+            ProducerManager.UpdateStock(true);
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");

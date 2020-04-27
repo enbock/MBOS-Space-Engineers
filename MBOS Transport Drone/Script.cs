@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "2.1.3";
+const String VERSION = "2.2.0";
 const String DATA_FORMAT = "2.0";
 
 /**
@@ -180,21 +180,21 @@ public class TransportDrone
     {
         if (FlightPaths.Count == 0) return;
         
-        DirectFlight(FlightPaths[0].Waypoints[0]);
+        StartingFlight(FlightPaths[0].Waypoints[0]);
     }
 
     protected void CheckFlight()
     {
-        Vector3D offset = CalculateConnectorOffset();
+        Vector3D offset = CalculateConnectorOffset() * (Mode == "DirectOver" || Mode == "Flight" ? 3.0 : 1.0);
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
         double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
         if (
-            (Distance > (Mode == "Direct" ? 0.5 : 5.0)) 
+            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 1.0 : 5.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
             double minDistance = traveled > Distance ? Distance : traveled;
-            double multiplier = (Mode == "Direct" || traveled > Distance) ? 4.0 : 2.0;
+            double multiplier = (Mode == "DirectOver" || traveled > Distance) ? 4.0 : 2.0;
             float speedLimit = Convert.ToSingle(minDistance < (100.0 * multiplier) ? minDistance / multiplier : 100.0);
             RemoteControl.SpeedLimit = speedLimit < 1f ? 1f : speedLimit;
             return;
@@ -203,6 +203,9 @@ public class TransportDrone
         if (Mark >= DateTime.Now) return;
 
         switch(Mode) {
+            case "DirectOver":
+                DirectFlightToDock(CurrentPath.DockingAt);
+                break;
             case "Direct":
                 Dock();
                 break;
@@ -228,6 +231,7 @@ public class TransportDrone
             case "Dock":
                 MarkDock();
                 break;
+            case "Start":
             case "Mark":
                 if (FlightPaths.Count > 0) {
                     if (IsHomeConnected()) {
@@ -247,15 +251,15 @@ public class TransportDrone
         }
     }
 
-    protected void DirectFlight(MyWaypointInfo waypoint)
+    protected void StartingFlight(MyWaypointInfo waypoint)
     {
-        Mode = "Direct";
+        Mode = "Start";
         StartPoint = RemoteControl.GetPosition();
         Target = waypoint.Coords;
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (IsHomeConnected()) {
+        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
             Connector.Disconnect();
         }
 
@@ -265,6 +269,50 @@ public class TransportDrone
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         AddWaypointWithConnectorOffset(waypoint);
+
+        RemoteControl.SetAutoPilotEnabled(true);
+    }
+
+    protected void DirectFlight(MyWaypointInfo waypoint)
+    {
+        Mode = "DirectOver";
+        StartPoint = RemoteControl.GetPosition();
+        Target = waypoint.Coords;
+        
+        Batteries.SetAuto();
+        Lights.TurnOn();
+        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
+            Connector.Disconnect();
+        }
+
+        RemoteControl.FlightMode = FlightMode.OneWay;
+        RemoteControl.SpeedLimit = 1f;
+        RemoteControl.SetCollisionAvoidance(false);
+        RemoteControl.SetDockingMode(true);
+        RemoteControl.ClearWaypoints();
+        AddWaypointWithConnectorOffset(waypoint, true);
+
+        RemoteControl.SetAutoPilotEnabled(true);
+    }
+
+    protected void DirectFlightToDock(MyWaypointInfo waypoint)
+    {
+        Mode = "Direct";
+        StartPoint = RemoteControl.GetPosition();
+        Target = waypoint.Coords;
+        
+        Batteries.SetAuto();
+        Lights.TurnOn();
+        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
+            Connector.Disconnect();
+        }
+
+        RemoteControl.FlightMode = FlightMode.OneWay;
+        RemoteControl.SpeedLimit = 1f;
+        RemoteControl.SetCollisionAvoidance(false);
+        RemoteControl.SetDockingMode(true);
+        RemoteControl.ClearWaypoints();
+        AddWaypointWithConnectorOffset(waypoint, false);
 
         RemoteControl.SetAutoPilotEnabled(true);
     }
@@ -284,7 +332,7 @@ public class TransportDrone
         RemoteControl.ClearWaypoints();
 
         foreach(MyWaypointInfo waypoint in CurrentPath.Waypoints) {
-            AddWaypointWithConnectorOffset(waypoint);
+            AddWaypointWithConnectorOffset(waypoint, true);
         }
         
         RemoteControl.SetAutoPilotEnabled(true);
@@ -303,28 +351,28 @@ public class TransportDrone
         }
     }
 
-    protected Vector3D CalculateConnectorOffset() {
+    public Vector3D CalculateConnectorOffset() {
         IMyShipConnector connector = Connector;
         if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
-            List<IMyShipConnector> elementBottomConnectors = new List<IMyShipConnector>();
+            List<IMyShipConnector> otherConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
-                elementBottomConnectors, 
+                otherConnectors, 
                 (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
-                    && connectorItem.Status != MyShipConnectorStatus.Connected
+                    && connectorItem.EntityId != Connector.OtherConnector.EntityId
             );
-            if(elementBottomConnectors.Count > 0) {
-                connector = elementBottomConnectors[0];
+            if(otherConnectors.Count > 0) {
+                connector = otherConnectors[0];
             }
         }
         
         return new Vector3D(RemoteControl.GetPosition() - connector.GetPosition());
     }
 
-    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {
+    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint, bool tripple = false) {
         Vector3D coords = new Vector3D(waypoint.Coords);
 
         // Add offset
-        coords += CalculateConnectorOffset();
+        coords += (CalculateConnectorOffset() * (tripple ? 3.0 : 1.0));
 
         RemoteControl.AddWaypoint(coords, waypoint.Name);
     }
@@ -408,15 +456,14 @@ public void InitProgram()
         homepath
     );
 
-    Drone.FlightPaths.Clear();
-    Drone.Dock();
-
-    List<String> pathList = new List<String>(Sys.Config("Paths").Value.Split('*'));
-    foreach(String pathData in pathList) {
-        if (pathData == String.Empty) continue;
-        Drone.AddFlightPath(pathData);
+    if (hangar != 0L) {
+        List<String> pathList = new List<String>(Sys.Config("Paths").Value.Split('*'));
+        foreach(String pathData in pathList) {
+            if (pathData == String.Empty) continue;
+            Drone.AddFlightPath(pathData);
+        }
+        Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
     }
-    Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
     
     if (hangar == 0L) {
         Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString() + "|transport");
@@ -484,10 +531,12 @@ public void UpdateInfo()
         + "\n"
         + "RemoteControl: " + Drone.RemoteControl.CustomName + "\n"
         + "Connector: " + (Drone.Connector != null ? Drone.Connector.CustomName : "not found") + "\n"
-        + "Home:" + Drone.Hangar.ToString() + "\n"
+        + "Connector connected: " + (Drone.Connector != null && Drone.Connector.Status == MyShipConnectorStatus.Connected ? "Yes" : "No") + "\n"
+        + "Home: " + Drone.Hangar.ToString() + "\n"
+        + "Home connected: " + (Drone.Connector != null && Drone.IsHomeConnected() ? "Yes" : "No") + "\n"
         + "Mode: " + Drone.Mode + "\n"
         + "CurrentPath: " + currentPath + "\n"
-        + "Next Target: " + Drone.Target.ToString() + "\n"
+        + "Next Target: " + Drone.Target.ToString() + (Drone.Connector != null ? "(Offset: " + Drone.CalculateConnectorOffset().ToString() + ")" : "") + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
         + "----------------------------------------\n"

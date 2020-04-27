@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.3.0";
+const String VERSION = "1.3.2";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -96,16 +96,18 @@ public class ResourceManager {
     public class DeliverMission {
         public long Id;
         public String Unit = String.Empty;
-        public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
+        public MyWaypointInfo ConsumerWaypoint = MyWaypointInfo.Empty;
+        public MyWaypointInfo ProducerWaypoint = MyWaypointInfo.Empty;
         public MBOS Sys;
         public int Quantity;
         public string DroneType;
 
-        public DeliverMission(MBOS sys, String unit, MyWaypointInfo waypoint, int quantity, string droneType) {
+        public DeliverMission(MBOS sys, String unit, MyWaypointInfo consumerWaypoint, MyWaypointInfo producerWaypoint, int quantity, string droneType) {
             Sys = sys;
             Id = System.DateTime.Now.ToBinary();
             Unit = unit;
-            Waypoint = waypoint;
+            ConsumerWaypoint = consumerWaypoint;
+            ProducerWaypoint = producerWaypoint;
             Quantity = quantity;
             DroneType = droneType;
         }
@@ -116,15 +118,17 @@ public class ResourceManager {
 
             Id = long.Parse(parts[0]);
             Unit = parts[1];
-            MBOS.ParseGPS(parts[2], out Waypoint);
-            Quantity = int.Parse(parts[3]);
-            DroneType = parts[4];
+            MBOS.ParseGPS(parts[2], out ConsumerWaypoint);
+            MBOS.ParseGPS(parts[3], out ProducerWaypoint);
+            Quantity = int.Parse(parts[4]);
+            DroneType = parts[5];
         }
 
         public override String ToString() {
             return Id.ToString()
                 + "*" + Unit
-                + "*" + Waypoint.ToString()
+                + "*" + ConsumerWaypoint.ToString()
+                + "*" + ProducerWaypoint.ToString()
                 + "*" + Quantity.ToString()
                 + "*" + DroneType
             ;
@@ -347,7 +351,7 @@ public class ResourceManager {
         MBOS.ParseGPS(parts[2], out waypoint);
         
         List<DeliverMission> foundMissions = Missions.FindAll(
-            (DeliverMission mission) => mission.Unit == unit && mission.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
+            (DeliverMission mission) => mission.Unit == unit && mission.ConsumerWaypoint.Coords.Equals(waypoint.Coords, 0.01)
         );
         int inDelivery = 0;
         foundMissions.ForEach((DeliverMission mission) => inDelivery += mission.Quantity);
@@ -371,7 +375,7 @@ public class ResourceManager {
         requestingConsumers.ForEach(
             delegate(Consumer consumer) {
                 List<DeliverMission> foundMissions = Missions.FindAll(
-                    (DeliverMission mission) => mission.Unit == consumer.Unit && mission.Waypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
+                    (DeliverMission mission) => mission.Unit == consumer.Unit && mission.ConsumerWaypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
                 );
                 if(foundMissions.Count > 0) {
                     return; // only one drone can fly to point ;)
@@ -392,12 +396,23 @@ public class ResourceManager {
 
         for(int index = 0; index < foundProducers.Count && neededQuantity > 0; index ++) {
             Producer producer = foundProducers[index];
+            
+            List<DeliverMission> foundMissions = Missions.FindAll(
+                (DeliverMission missionItem) => missionItem.ProducerWaypoint.Coords.Equals(producer.Waypoint.Coords, 0.01)
+            );
+            if(foundMissions.Count > 0) {
+                continue; // only one drone can take from point ;)
+            }
+            
             int stock = producer.Stock - producer.Reserved;
             if (stock == 0) continue;
 
             int quantity = stock >= neededQuantity ? neededQuantity : stock;
             producer.Reserved += quantity;
-            MBOS.Sys.Transceiver.SendMessage(producer.EntityId, "OrderResource|" + producer.Unit + "|" + quantity);
+            MBOS.Sys.Transceiver.SendMessage(
+                producer.EntityId, 
+                "OrderResource|" + producer.Unit + "|" + quantity + "|" + producer.Waypoint.ToString()
+            );
 
             // TODO: For error checks, we can implement here waiting for "confirm order" message
 
@@ -405,6 +420,7 @@ public class ResourceManager {
                 MBOS.Sys, 
                 consumer.Unit,
                 consumer.Waypoint, 
+                producer.Waypoint, 
                 quantity, 
                 MapUnitTypeToDroneType(producer.Type)
             );
@@ -447,16 +463,16 @@ public class ResourceManager {
         Missions.Remove(mission);
 
         List<Consumer> foundConsumers = Consumers.FindAll(
-            (Consumer consumerItem) => consumerItem.Unit == mission.Unit && consumerItem.Waypoint.Coords.Equals(mission.Waypoint.Coords, 0.01)
+            (Consumer consumerItem) => consumerItem.Unit == mission.Unit && consumerItem.Waypoint.Coords.Equals(mission.ConsumerWaypoint.Coords, 0.01)
         );
         if(foundConsumers.Count == 0) {
-            MBOS.Sys.Echo("ERROR: Completed mission for not found consumer " + mission.Unit + " at " + mission.Waypoint);
+            MBOS.Sys.Echo("ERROR: Completed mission for not found consumer " + mission.Unit + " at " + mission.ConsumerWaypoint);
             return;
         }
         Consumer consumer = foundConsumers[0];
         if(consumer.Delivered < mission.Quantity) {
             // Öhm...Drone lost cargo?
-            MBOS.Sys.Echo("ERROR: Completed mission does not deliver! Redo mission: " + mission.Unit + " at " + mission.Waypoint);
+            MBOS.Sys.Echo("ERROR: Completed mission does not deliver! " + mission.Unit + " at " + mission.ConsumerWaypoint);
             return;
         }
         consumer.Requested -= mission.Quantity;
