@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.3.5";
+const String VERSION = "1.4.0";
 const String DATA_FORMAT = "2";
 
 /**
@@ -266,10 +266,31 @@ public class DroneHangar : Station
             delegate(DeliveryMission mission) {
                 List<Pod> freePods = Pods.FindAll(
                     delegate(Pod podItem) {
+
+                        List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
+                        
                         IMyProgrammableBlock block = MBOS.Sys.GridTerminalSystem.GetBlockWithId(podItem.Drone) as IMyProgrammableBlock;
                         if (block == null || podItem.Connector.Status != MyShipConnectorStatus.Connected) {
                             return false;
                         }
+
+                        // batteries charged?
+                        float current = 0f;
+                        float max = 0f;
+                        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
+                            batteries,
+                            (IMyTerminalBlock batteryblock) => batteryblock.CubeGrid.EntityId == podItem.Connector.OtherConnector.CubeGrid.EntityId
+                        );
+                        batteries.ForEach(delegate(IMyTerminalBlock batteryblock) {
+                            IMyBatteryBlock battery = batteryblock as IMyBatteryBlock;
+                            max += battery.MaxStoredPower;
+                            current += battery.CurrentStoredPower;
+                        });
+                        MBOS.Sys.Echo(">>>CHARGE="+(100f / max * current).ToString());
+                        if ((100f / max * current) < 100f) {
+                            return false;
+                        }
+
                         List<DeliveryMission> assignedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == podItem);
 
                         return assignedMissions.Count == 0;

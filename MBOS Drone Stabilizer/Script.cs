@@ -127,10 +127,10 @@ public void Main(string argument) {
             MatrixD.Transpose(ctrlFlight.WorldMatrix.GetOrientation())
         );
 
-        g.Roll = (float)localGrav.X / 10f * -1f;
-        g.Pitch = (float)localGrav.Z / 10f * -1f;
+        g.Roll = (float)localGrav.X / 100f * -1f;
+        g.Pitch = (float)localGrav.Z / 100f;
 
-        Runtime.UpdateFrequency = Math.Abs((float)localGrav.X + (float)localGrav.Z) > 0.1f ? UpdateFrequency.Update1 : UpdateFrequency.Update10;
+        Runtime.UpdateFrequency = Math.Abs(g.Roll+ g.Pitch) > 0.02 ? UpdateFrequency.Update1 : UpdateFrequency.Update10;
     }
 }
 

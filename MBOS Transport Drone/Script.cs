@@ -191,6 +191,7 @@ public class TransportDrone
 
         if (Target.Equals(Vector3D.Zero)) {
             Distance = 0;
+            traveled = 0;
         }
 
         if (Distance < 10.0  && Mode == "DirectOver") {
@@ -198,12 +199,12 @@ public class TransportDrone
         }
 
         if (
-            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 1.0 : 5.0)) 
+            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 1.0 : 15.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
-            double minDistance = traveled > Distance ? Distance : traveled;
-            double multiplier = (Mode == "Direct" || traveled > Distance) ? 4.0 : 2.0;
-            float speedLimit = Convert.ToSingle(minDistance < (100.0 * multiplier) ? minDistance / multiplier : 100.0);
+            double distance = traveled > Distance ? Distance : traveled;
+            distance = distance > 100.0 ? 100.0 : distance;
+            float speedLimit = ((Mode == "Direct" || Mode == "DirectOver") ? 20f : 100f) / 100f * Convert.ToSingle(distance);
             RemoteControl.SpeedLimit = speedLimit < 1f || Target.Equals(Vector3D.Zero) ? 1f : speedLimit;
             return;
         }
