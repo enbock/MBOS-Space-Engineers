@@ -286,8 +286,7 @@ public class DroneHangar : Station
                             max += battery.MaxStoredPower;
                             current += battery.CurrentStoredPower;
                         });
-                        MBOS.Sys.Echo(">>>CHARGE="+(100f / max * current).ToString());
-                        if ((100f / max * current) < 100f) {
+                        if ((100f / max * current) < 98f) {
                             return false;
                         }
 

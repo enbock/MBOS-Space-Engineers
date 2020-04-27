@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "2.2.0";
+const String VERSION = "2.3.2";
 const String DATA_FORMAT = "2.0";
 
 /**
@@ -151,7 +151,7 @@ public class TransportDrone
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         Connector.Connect();
-        Mark = DateTime.Now.AddSeconds(2);
+        Mark = DateTime.Now.AddSeconds(5);
     }
 
     public void GoHome() {
@@ -172,7 +172,7 @@ public class TransportDrone
     protected void Start() 
     {
         Lights.TurnOn();
-        Mark = DateTime.Now.AddSeconds(5);
+        Mark = DateTime.Now.AddSeconds(20);
         Mode = "Mark";
     }
 
@@ -185,7 +185,7 @@ public class TransportDrone
 
     protected void CheckFlight()
     {
-        Vector3D offset = CalculateConnectorOffset() * (Mode == "DirectOver" || Mode == "Flight" ? 3.0 : 1.0);
+        Vector3D offset = CalculateConnectorOffset() * (Mode == "DirectOver" || Mode == "Flight" ? HoverModeMultiplicator : 1.0);
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
         double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
@@ -194,18 +194,17 @@ public class TransportDrone
             traveled = 0;
         }
 
-        if (Distance < 10.0  && Mode == "DirectOver") {
-            RemoteControl.SetCollisionAvoidance(false);
-        }
-
         if (
-            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 1.0 : 15.0)) 
+            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 0.05 : 15.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
-            double distance = traveled > Distance ? Distance : traveled;
+            bool isStarting = traveled < Distance && Distance > 500.0;
+            double distance = isStarting ? traveled : Distance;
+            distance = 1.0 * (distance / (isStarting ? 2.0 : 5.0));
             distance = distance > 100.0 ? 100.0 : distance;
             float speedLimit = ((Mode == "Direct" || Mode == "DirectOver") ? 20f : 100f) / 100f * Convert.ToSingle(distance);
-            RemoteControl.SpeedLimit = speedLimit < 1f || Target.Equals(Vector3D.Zero) ? 1f : speedLimit;
+            float minSpeed = (Mode == "Direct") ? 0.25f : ((Mode == "DirectOver") ? 1f : 10f);
+            RemoteControl.SpeedLimit = speedLimit < minSpeed || Target.Equals(Vector3D.Zero) ? minSpeed : speedLimit;
             return;
         }
         
@@ -213,6 +212,11 @@ public class TransportDrone
 
         switch(Mode) {
             case "DirectOver":
+                Mark = DateTime.Now.AddSeconds(20);
+                RemoteControl.SetAutoPilotEnabled(false);
+                Mode = "DirectOverMark";
+                break;
+            case "DirectOverMark":
                 DirectFlightToDock(CurrentPath.DockingAt);
                 break;
             case "Direct":
@@ -296,7 +300,7 @@ public class TransportDrone
 
         RemoteControl.FlightMode = FlightMode.OneWay;
         RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetCollisionAvoidance(true);
+        RemoteControl.SetCollisionAvoidance(false);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         AddWaypointWithConnectorOffset(waypoint, true);
@@ -362,6 +366,7 @@ public class TransportDrone
 
     public Vector3D CalculateConnectorOffset() {
         IMyShipConnector connector = Connector;
+        bool hasCargo = false;
         if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
             List<IMyShipConnector> otherConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
@@ -371,17 +376,29 @@ public class TransportDrone
             );
             if(otherConnectors.Count > 0) {
                 connector = otherConnectors[0];
+                hasCargo = true;
             }
         }
+
+        Vector3D connectorOffset = RemoteControl.GetPosition() - connector.GetPosition();
+        Vector3D assummedTargetOffset =  RemoteControl.GetPosition() - Connector.GetPosition();
+
+        // keeop some room for connection-space between drone and cargo // done and port
+        if (hasCargo) {
+            connectorOffset = connectorOffset + assummedTargetOffset * 1.85;
+        } else {
+            connectorOffset = connectorOffset + assummedTargetOffset * 0.75;
+        }
         
-        return new Vector3D(RemoteControl.GetPosition() - connector.GetPosition());
+        return connectorOffset;
     }
 
-    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint, bool tripple = false) {
+    protected double HoverModeMultiplicator = 1.25;
+    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint, bool hoverMode = false) {
         Vector3D coords = new Vector3D(waypoint.Coords);
 
         // Add offset
-        coords += (CalculateConnectorOffset() * (tripple ? 3.0 : 1.0));
+        coords += (CalculateConnectorOffset() * (hoverMode ? HoverModeMultiplicator : 1.0));
 
         RemoteControl.AddWaypoint(coords, waypoint.Name);
     }
