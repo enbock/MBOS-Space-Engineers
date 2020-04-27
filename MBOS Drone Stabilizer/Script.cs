@@ -1,4 +1,4 @@
-const String VERSION = "1.1.1";
+const String VERSION = "1.2.0";
 const String DATA_FORMAT = "1.0";
 
 /**
@@ -127,13 +127,10 @@ public void Main(string argument) {
             MatrixD.Transpose(ctrlFlight.WorldMatrix.GetOrientation())
         );
 
-        ITerminalProperty<float> propGyroPitch = g.GetProperty("Pitch").AsFloat();
-        //ITerminalProperty<float> propGyroYaw   = g.GetProperty("Yaw"  ).AsFloat();
-        ITerminalProperty<float> propGyroRoll  = g.GetProperty("Roll" ).AsFloat();
+        g.Roll = (float)localGrav.X / 10f * -1f;
+        g.Pitch = (float)localGrav.Z / 10f * -1f;
 
-        propGyroRoll.SetValue(g, (float)localGrav.X / 10f * -1f);
-        propGyroPitch.SetValue(g, (float)localGrav.Z / 10f * -1f);
-
+        Runtime.UpdateFrequency = Math.Abs((float)localGrav.X + (float)localGrav.Z) > 0.1f ? UpdateFrequency.Update1 : UpdateFrequency.Update10;
     }
 }
 

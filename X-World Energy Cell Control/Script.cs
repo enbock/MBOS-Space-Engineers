@@ -26,7 +26,7 @@ Workflow:
 * After Battery is full charged, the transport takes the Energy Cell and transport it to an Consumer Station.
 
 */
-const String VERSION = "1.0.1";
+const String VERSION = "1.0.2";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -128,7 +128,7 @@ public void Main(string argument, UpdateType updateSource)
             WaitForAway = false;
         }
         
-        if (isLoaderConnected && isPowerInRange && !WaitForAway) {
+        if (isLoaderConnected && ((isPowerInRange && !WaitForAway) || isPowerConnected)) {
             modeDispaly = "=>+";
             Loader.PullStrength = 0f;
             Power.PullStrength = PullStrength;

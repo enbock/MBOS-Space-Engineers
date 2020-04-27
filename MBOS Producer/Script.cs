@@ -1,13 +1,11 @@
 const String NAME = "Producer";
-const String VERSION = "1.1.5";
+const String VERSION = "1.1.6";
 const String DATA_FORMAT = "2";
 
 /*
     Register examples:
         Register ChargedEnergyCell Battery 1 Power Charger #1
         Register EmptyEnergyCell Single 1 Charge Connector #1
-
-        TODO: Producer on Connectable mode should only "produce" in change of Connected to Connectable.
 */
 
 public enum UnitType
@@ -31,7 +29,9 @@ public class Manager
         public int Stock = 0;
         public long RegisteredByManager = 0;
         public int Reservation = 0;
-        public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
+        public MyShipConnectorStatus SingleUnitStockWhenNow = MyShipConnectorStatus.Connected;
+        public MyShipConnectorStatus SingleUnitStockWhenBefore = MyShipConnectorStatus.Connected;
+        protected MyShipConnectorStatus ConnectorStatusBefore = MyShipConnectorStatus.Unconnected;
         
         public Resource(String unit, UnitType type, double volumePerUnit, IMyShipConnector connector, MyWaypointInfo waypoint) {
             Unit = unit;
@@ -81,7 +81,13 @@ public class Manager
         protected void UpdateStock(MBOS system) {
             switch(Type) {
                 case UnitType.Single:
-                    Stock = Connector.IsWorking && Connector.Status == SingleUnitStockWhen ? 1 : 0;
+                    if (Connector.Status != ConnectorStatusBefore) {
+                        Stock = Connector.IsWorking 
+                            && (ConnectorStatusBefore == SingleUnitStockWhenBefore || SingleUnitStockWhenBefore == SingleUnitStockWhenNow)  
+                            && Connector.Status == SingleUnitStockWhenNow 
+                        ? 1 : 0;
+                    }
+                    ConnectorStatusBefore = Connector.Status;
                     break;
                 case UnitType.Battery:
                     if (Connector.IsWorking == false || Connector.Status != MyShipConnectorStatus.Connected) {
@@ -110,7 +116,8 @@ public class Manager
     }
 
     public List<Resource> Resources = new List<Resource>();
-    public MyShipConnectorStatus SingleUnitStockWhen = MyShipConnectorStatus.Connected;
+    public MyShipConnectorStatus SingleUnitStockWhenNow = MyShipConnectorStatus.Connected;
+    public MyShipConnectorStatus SingleUnitStockWhenBefore = MyShipConnectorStatus.Connected;
     protected MBOS System;
 
     public Manager(MBOS system) {
@@ -157,7 +164,8 @@ public class Manager
             newResource = new Resource(unit, type, volumePerUnit, connector, waypoint);
             Resources.Add(newResource);
         }
-        newResource.SingleUnitStockWhen = SingleUnitStockWhen;
+        newResource.SingleUnitStockWhenBefore = SingleUnitStockWhenBefore;
+        newResource.SingleUnitStockWhenNow = SingleUnitStockWhenNow;
 
         BroadCastResource(newResource);
 
@@ -168,7 +176,8 @@ public class Manager
         List<String> list = new List<String>();
         Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
         System.Config("Resources").Value = String.Join("|", list.ToArray());
-        System.Config("SingleUnitStockWhen").Value = SingleUnitStockWhen.ToString();
+        System.Config("SingleUnitStockWhen").Value = SingleUnitStockWhenNow.ToString();
+        System.Config("SingleUnitStockWhenBefore").Value = SingleUnitStockWhenBefore.ToString();
     }
 
     public void ExecuteMessage(String message) {
@@ -244,15 +253,20 @@ public class Manager
     }
 
     protected void Load() {
-        String singleStockWhen = System.Config("SingleUnitStockWhen").Value;
-        if (singleStockWhen != String.Empty) {
-            SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhen);
+        String singleStockWhenNow = System.Config("SingleUnitStockWhen").Value;
+        if (singleStockWhenNow != String.Empty) {
+            SingleUnitStockWhenNow = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhenNow);
+        }
+        String singleStockWhenBefore = System.Config("SingleUnitStockWhenBefore").Value;
+        if (singleStockWhenBefore != String.Empty) {
+            SingleUnitStockWhenBefore = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhenBefore);
         }
         List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
                 Resource newResource = new Resource(System, line);
-                newResource.SingleUnitStockWhen = SingleUnitStockWhen;
+                newResource.SingleUnitStockWhenNow = SingleUnitStockWhenNow;
+                newResource.SingleUnitStockWhenBefore = SingleUnitStockWhenBefore;
                 Resources.Add(newResource);
             }
         });
@@ -403,9 +417,10 @@ public void ReadArgument(String args)
             ProducerManager.UpdateStock(true);
             break;
         case "SingleUpdateStockWhen":
-            ProducerManager.SingleUnitStockWhen = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
-            ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhen = ProducerManager.SingleUnitStockWhen);
-            Echo("Single Unit stock filled when case of " + ProducerManager.SingleUnitStockWhen);
+            ProducerManager.SingleUnitStockWhenBefore = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
+            ProducerManager.SingleUnitStockWhenNow = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[1]);
+            ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhenNow = ProducerManager.SingleUnitStockWhenNow);
+            Echo("Single Unit stock filled when case of change from " + ProducerManager.SingleUnitStockWhenBefore + " to " + ProducerManager.SingleUnitStockWhenNow);
             break;
         case "Reset":
             ProducerManager.Resources.Clear();
@@ -429,7 +444,7 @@ public void ReadArgument(String args)
                 "Available Commands: \n"
                 + " * Register <Resource Name> {Single|Conatiner|Liquid} <Volume> <Connector> [<GPS>]\n"
                 + " * ForceUpdate\n"
-                + " * SingleUpdateStockWhen {Connected|Connectable|Unconnected}"
+                + " * SingleUpdateStockWhen <BeforeState:{Connected|Connectable|Unconnected}> <NowState:{Connected|Connectable|Unconnected}>\n"
             );
             break;
     }

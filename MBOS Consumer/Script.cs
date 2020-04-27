@@ -1,13 +1,11 @@
 const String NAME = "Consumer";
-const String VERSION = "1.0.0";
+const String VERSION = "1.0.3";
 const String DATA_FORMAT = "1";
 
 /*
     Register examples:
         Register EmptyEnergyCell Single 1 Power Charger #1
         Register ChargedEnergyCell Battery 1 Charge Connector #1
-
-    TODO: Single message one to much received while delivery.
 */
 
 public enum UnitType
@@ -72,13 +70,7 @@ public class Manager
             switch(Type) {
                 case UnitType.Single:
                 case UnitType.Battery:
-                    Stock = (
-                        Connector.IsWorking == false
-                        || (
-                            Connector.Status == MyShipConnectorStatus.Unconnected 
-                            && Connector.Status != MyShipConnectorStatus.Connectable 
-                        )
-                    ) ? 0 : 1;
+                    Stock = (Connector.IsWorking == true && (Connector.Status == MyShipConnectorStatus.Connected || Connector.Status == MyShipConnectorStatus.Connectable)) ? 1 : 0;
                     break;
             }
         }
@@ -165,22 +157,21 @@ public class Manager
             int oldStock = resource.Stock;
             if(resource.StockHasChanged(System) == false && force == false) return;
 
-            if(resource.Stock >= resource.RequiredStock) {
-                int deliveredStock = resource.Stock - oldStock;
-
+            int deliveredStock = resource.Stock - oldStock;
+            if(deliveredStock > 0) {
                 System.Transceiver.SendMessage(
                     resource.RegisteredByManager,
                     "ResourceDelivered|" + resource.Unit + "|" + deliveredStock.ToString() + "|" + resource.Waypoint.ToString()
                 );
-                return;
             }
 
             int neededQuantity = resource.RequiredStock - resource.Stock;
-
-            System.Transceiver.SendMessage(
-                resource.RegisteredByManager,
-                "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
-            );
+            if (neededQuantity > 0) {
+                System.Transceiver.SendMessage(
+                    resource.RegisteredByManager,
+                    "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
+                );
+            }
         });
     }
 

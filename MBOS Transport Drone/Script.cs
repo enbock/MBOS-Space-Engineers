@@ -35,7 +35,7 @@ public class TransportDrone
                 pathExport += waypoint.ToString();
             }
 
-            return pathExport + ">" + (HasToDock ? DockingAt.ToString() : String.Empty);
+            return pathExport + (HasToDock ? ">" + DockingAt.ToString() : String.Empty);
         }
 
         public static FlightPath ParseString(String pathData)
@@ -189,14 +189,22 @@ public class TransportDrone
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
         double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
+        if (Target.Equals(Vector3D.Zero)) {
+            Distance = 0;
+        }
+
+        if (Distance < 10.0  && Mode == "DirectOver") {
+            RemoteControl.SetCollisionAvoidance(false);
+        }
+
         if (
             (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 1.0 : 5.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
             double minDistance = traveled > Distance ? Distance : traveled;
-            double multiplier = (Mode == "DirectOver" || traveled > Distance) ? 4.0 : 2.0;
+            double multiplier = (Mode == "Direct" || traveled > Distance) ? 4.0 : 2.0;
             float speedLimit = Convert.ToSingle(minDistance < (100.0 * multiplier) ? minDistance / multiplier : 100.0);
-            RemoteControl.SpeedLimit = speedLimit < 1f ? 1f : speedLimit;
+            RemoteControl.SpeedLimit = speedLimit < 1f || Target.Equals(Vector3D.Zero) ? 1f : speedLimit;
             return;
         }
         
@@ -287,7 +295,7 @@ public class TransportDrone
 
         RemoteControl.FlightMode = FlightMode.OneWay;
         RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetCollisionAvoidance(false);
+        RemoteControl.SetCollisionAvoidance(true);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         AddWaypointWithConnectorOffset(waypoint, true);
@@ -414,6 +422,7 @@ public void Save()
         Sys.Config("Paths").Value = String.Join("*", pathConfig.ToArray());
         Sys.Config("Hangar").Value = Drone.Hangar.ToString();
         Sys.Config("Homepath").Value = Drone.Homepath;
+        Sys.Config("CurrenPath").Value = Drone.CurrentPath.ToString();
     }
     
     Sys.SaveConfig();
@@ -455,6 +464,11 @@ public void InitProgram()
         hangar,
         homepath
     );
+
+    string currentPath = Sys.Config("CurrenPath").Value;
+    if (currentPath != string.Empty) {
+        Drone.CurrentPath = TransportDrone.FlightPath.ParseString(currentPath);
+    }
 
     if (hangar != 0L) {
         List<String> pathList = new List<String>(Sys.Config("Paths").Value.Split('*'));
