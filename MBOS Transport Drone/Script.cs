@@ -1,6 +1,6 @@
 const String NAME = "Transport Drone";
-const String VERSION = "2.3.2";
-const String DATA_FORMAT = "2.0";
+const String VERSION = "3.0.1";
+const String DATA_FORMAT = "3";
 
 /**
 DEMO radio data:
@@ -185,7 +185,7 @@ public class TransportDrone
 
     protected void CheckFlight()
     {
-        Vector3D offset = CalculateConnectorOffset() * (Mode == "DirectOver" || Mode == "Flight" ? HoverModeMultiplicator : 1.0);
+        Vector3D offset = CalculateConnectorOffset();
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
         double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
@@ -195,15 +195,15 @@ public class TransportDrone
         }
 
         if (
-            (Distance > (Mode == "Direct" || Mode == "DirectOver" ? 0.05 : 15.0)) 
+            (Distance > (Mode == "Direct" ? 0.05 : 15.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
             bool isStarting = traveled < Distance && Distance > 500.0;
             double distance = isStarting ? traveled : Distance;
-            distance = 1.0 * (distance / (isStarting ? 2.0 : 5.0));
+            distance = 1.0 * (distance / (isStarting ? 2.0 : 4.0));
             distance = distance > 100.0 ? 100.0 : distance;
-            float speedLimit = ((Mode == "Direct" || Mode == "DirectOver") ? 20f : 100f) / 100f * Convert.ToSingle(distance);
-            float minSpeed = (Mode == "Direct") ? 0.25f : ((Mode == "DirectOver") ? 1f : 10f);
+            float speedLimit = ((Mode == "Direct") ? 50f : 100f) / 100f * Convert.ToSingle(distance);
+            float minSpeed = (Mode == "Direct") ? 1f :  2f;
             RemoteControl.SpeedLimit = speedLimit < minSpeed || Target.Equals(Vector3D.Zero) ? minSpeed : speedLimit;
             return;
         }
@@ -211,14 +211,6 @@ public class TransportDrone
         if (Mark >= DateTime.Now) return;
 
         switch(Mode) {
-            case "DirectOver":
-                Mark = DateTime.Now.AddSeconds(20);
-                RemoteControl.SetAutoPilotEnabled(false);
-                Mode = "DirectOverMark";
-                break;
-            case "DirectOverMark":
-                DirectFlightToDock(CurrentPath.DockingAt);
-                break;
             case "Direct":
                 Dock();
                 break;
@@ -284,31 +276,10 @@ public class TransportDrone
         AddWaypointWithConnectorOffset(waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
+        EnableCargoThrusters(true);
     }
 
     protected void DirectFlight(MyWaypointInfo waypoint)
-    {
-        Mode = "DirectOver";
-        StartPoint = RemoteControl.GetPosition();
-        Target = waypoint.Coords;
-        
-        Batteries.SetAuto();
-        Lights.TurnOn();
-        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
-            Connector.Disconnect();
-        }
-
-        RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetCollisionAvoidance(false);
-        RemoteControl.SetDockingMode(true);
-        RemoteControl.ClearWaypoints();
-        AddWaypointWithConnectorOffset(waypoint, true);
-
-        RemoteControl.SetAutoPilotEnabled(true);
-    }
-
-    protected void DirectFlightToDock(MyWaypointInfo waypoint)
     {
         Mode = "Direct";
         StartPoint = RemoteControl.GetPosition();
@@ -323,11 +294,12 @@ public class TransportDrone
         RemoteControl.FlightMode = FlightMode.OneWay;
         RemoteControl.SpeedLimit = 1f;
         RemoteControl.SetCollisionAvoidance(false);
-        RemoteControl.SetDockingMode(true);
+        RemoteControl.SetDockingMode(false);
         RemoteControl.ClearWaypoints();
-        AddWaypointWithConnectorOffset(waypoint, false);
+        AddWaypointWithConnectorOffset(waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
+        EnableCargoThrusters(true);
     }
 
     protected void FlightNextPath() {
@@ -345,10 +317,11 @@ public class TransportDrone
         RemoteControl.ClearWaypoints();
 
         foreach(MyWaypointInfo waypoint in CurrentPath.Waypoints) {
-            AddWaypointWithConnectorOffset(waypoint, true);
+            AddWaypointWithConnectorOffset(waypoint);
         }
         
         RemoteControl.SetAutoPilotEnabled(true);
+        EnableCargoThrusters(true);
     }
 
     protected void MarkDock()
@@ -366,7 +339,6 @@ public class TransportDrone
 
     public Vector3D CalculateConnectorOffset() {
         IMyShipConnector connector = Connector;
-        bool hasCargo = false;
         if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
             List<IMyShipConnector> otherConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
@@ -376,29 +348,19 @@ public class TransportDrone
             );
             if(otherConnectors.Count > 0) {
                 connector = otherConnectors[0];
-                hasCargo = true;
             }
         }
 
         Vector3D connectorOffset = RemoteControl.GetPosition() - connector.GetPosition();
-        Vector3D assummedTargetOffset =  RemoteControl.GetPosition() - Connector.GetPosition();
-
-        // keeop some room for connection-space between drone and cargo // done and port
-        if (hasCargo) {
-            connectorOffset = connectorOffset + assummedTargetOffset * 1.85;
-        } else {
-            connectorOffset = connectorOffset + assummedTargetOffset * 0.75;
-        }
         
         return connectorOffset;
     }
 
-    protected double HoverModeMultiplicator = 1.25;
-    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint, bool hoverMode = false) {
+    protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {
         Vector3D coords = new Vector3D(waypoint.Coords);
 
         // Add offset
-        coords += (CalculateConnectorOffset() * (hoverMode ? HoverModeMultiplicator : 1.0));
+        coords += CalculateConnectorOffset();
 
         RemoteControl.AddWaypoint(coords, waypoint.Name);
     }
@@ -412,6 +374,20 @@ public class TransportDrone
     {
         Hangar = long.Parse(hangar);
         Homepath = homepath;
+    }
+
+    protected void EnableCargoThrusters(bool enabled)
+    {
+        if (Connector.Status != MyShipConnectorStatus.Connected) return;
+
+        List<IMyThrust> otherThrusters = new List<IMyThrust>();
+        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyThrust>(
+            otherThrusters, 
+            (IMyThrust thruster) => thruster.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
+                && thruster.EntityId != Connector.OtherConnector.EntityId
+        );
+
+        otherThrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);
     }
 }
 
@@ -573,8 +549,6 @@ public void UpdateInfo()
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
-        + "----------------------------------------\n"
-        + Sys.BroadCastTransceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
 }
@@ -612,14 +586,12 @@ public void ReadArgument(String args)
             Drone.ExecuteMessage("AddFlightPath|"+allArgs);
             Drone.ExecuteMessage("Start");
             break;
-
         case "ReceiveMessage":
             Echo("Received radio data.");
             Drone.Run();
             break;
-
         default:
-            Echo("Available Commands: SetRemoteControl");
+            Echo("Available Commands: SetRemoteControl <Control>, SetControlConnectorDistanceInBigBlock <relativeDistance>");
             break;
     }
 }
@@ -675,6 +647,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
+    protected List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
@@ -688,8 +661,8 @@ public class MBOS {
         ComputerDisplay.ChangeInterval = 0;
 
         MBOS.Sys = this;
-        Transceiver = new UniTransceiver(this);
-        BroadCastTransceiver = new WorldTransceiver(this);
+        Transceiver = new UniTransceiver(this, Traffic);
+        BroadCastTransceiver = new WorldTransceiver(this, Traffic);
     }
 
     public ConfigValue Config(String key) {
@@ -772,8 +745,9 @@ public class MBOS {
         protected String LastSendData = "";
         protected List<String> Traffic = new List<String>();
 
-        public WorldTransceiver(MBOS sys) {
+        public WorldTransceiver(MBOS sys, List<String> traffic) {
             Sys = sys;
+            Traffic = traffic;
             Channel = "world";
 
             ListenerAware();
@@ -783,10 +757,6 @@ public class MBOS {
         {
             List<IMyBroadcastListener> listeners = new List<IMyBroadcastListener>();
             Sys.IGC.GetBroadcastListeners(listeners, (IMyBroadcastListener listener) => listener.Tag == Channel && listener.IsActive);
-
-            //if (BroadcastListener != null) {
-            //    Sys.IGC.DisableBroadcastListener(BroadcastListener);
-            //}
 
             BroadcastListener = listeners.Count > 0 ? listeners[0] : Sys.IGC.RegisterBroadcastListener(Channel);
             BroadcastListener.SetMessageCallback("ReceiveMessage");
@@ -809,7 +779,7 @@ public class MBOS {
             stack = stack.Skip(1).ToArray(); // remove timestamp
 
             String messageText = String.Join("|", stack);
-            Traffic.Add("< " + messageText);
+            Traffic.Add("[B]< " + messageText);
 
             return messageText;
         }
@@ -819,7 +789,7 @@ public class MBOS {
             String message = DateTime.Now.ToBinary() + "|" + data;
             Sys.IGC.SendBroadcastMessage<String>(Channel, message, Range);
             LastSendData = message;
-            Traffic.Add("> " + data);
+            Traffic.Add("[B]> " + data);
         }
 
         public String DebugTraffic()
@@ -845,9 +815,10 @@ public class MBOS {
         protected MBOS Sys;
         protected List<String> Traffic = new List<String>();
 
-        public UniTransceiver(MBOS sys)
+        public UniTransceiver(MBOS sys, List<String> traffic)
         {
             Sys = sys;
+            Traffic = traffic;
             Listener = Sys.IGC.UnicastListener;
             Listener.SetMessageCallback("ReceiveMessage");
         }
@@ -860,14 +831,14 @@ public class MBOS {
             MyIGCMessage message = Listener.AcceptMessage();
             String incoming = message.As<String>();
 
-            Traffic.Add("< " + incoming);
+            Traffic.Add("[U]< " + incoming);
 
             return incoming;
         }
 
         public void SendMessage(long target, String data) 
         {
-            Traffic.Add("> " + data);
+            Traffic.Add("[U]> " + data);
             Sys.IGC.SendUnicastMessage<string>(target, "whisper", data);
         }
         
@@ -888,7 +859,6 @@ public class MBOS {
         }
     }
 }
-
 
 public class Batteries {
     protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();

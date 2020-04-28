@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "1.1.6";
+const String VERSION = "1.1.8";
 const String DATA_FORMAT = "2";
 
 /*
@@ -53,9 +53,7 @@ public class Manager
             Stock = int.Parse(parts[5]);
             RegisteredByManager = long.Parse(parts[6]);
             Reservation = int.Parse(parts[7]);
-            if(parts.Count < 9 || MBOS.ParseGPS(parts[8], out ConnectedWaypoint) == false) {
-                ConnectedWaypoint = Waypoint;
-            };
+            ConnectedWaypoint = Waypoint;
         }
 
         public override String ToString() {
@@ -67,7 +65,6 @@ public class Manager
                 + "*" + Stock.ToString()
                 + "*" + RegisteredByManager.ToString()
                 + "*" + Reservation.ToString()
-                + "*" + ConnectedWaypoint.ToString()
             ;
         }
 
@@ -212,6 +209,7 @@ public class Manager
             // Apply reservations
             switch(resource.Type) {
                 case UnitType.Single:
+                case UnitType.Battery:
                     if (resource.Stock == 0 && resource.Reservation >= 1) {
                         resource.Reservation = 0;
                     }
@@ -270,6 +268,7 @@ public class Manager
                 Resources.Add(newResource);
             }
         });
+        UpgradeResourceWaypoints();
     }
 
     protected void SendUpdate(Resource resource, int overrideStock = -1) {
@@ -390,9 +389,7 @@ public void UpdateInfo()
         + "Registered Resources: " + ProducerManager.Resources.Count.ToString() + "\n"
         + stockResourceOutput
         + "----------------------------------------\n"
-        + Sys.Transceiver.DebugTraffic() +"\n"
-        + "----------------------------------------\n"
-        + Sys.BroadCastTransceiver.DebugTraffic()
+        + Sys.Transceiver.DebugTraffic()
     ;
     Sys.ComputerDisplay.WriteText(output, false);
 }
@@ -501,6 +498,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
+    protected List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
@@ -514,8 +512,8 @@ public class MBOS {
         ComputerDisplay.ChangeInterval = 0;
 
         MBOS.Sys = this;
-        Transceiver = new UniTransceiver(this);
-        BroadCastTransceiver = new WorldTransceiver(this);
+        Transceiver = new UniTransceiver(this, Traffic);
+        BroadCastTransceiver = new WorldTransceiver(this, Traffic);
     }
 
     public ConfigValue Config(String key) {
@@ -621,8 +619,9 @@ public class MBOS {
         protected String LastSendData = "";
         protected List<String> Traffic = new List<String>();
 
-        public WorldTransceiver(MBOS sys) {
+        public WorldTransceiver(MBOS sys, List<String> traffic) {
             Sys = sys;
+            Traffic = traffic;
             Channel = "world";
 
             ListenerAware();
@@ -654,7 +653,7 @@ public class MBOS {
             stack = stack.Skip(1).ToArray(); // remove timestamp
 
             String messageText = String.Join("|", stack);
-            Traffic.Add("< " + messageText);
+            Traffic.Add("[B]< " + messageText);
 
             return messageText;
         }
@@ -664,7 +663,7 @@ public class MBOS {
             String message = DateTime.Now.ToBinary() + "|" + data;
             Sys.IGC.SendBroadcastMessage<String>(Channel, message, Range);
             LastSendData = message;
-            Traffic.Add("> " + data);
+            Traffic.Add("[B]> " + data);
         }
 
         public String DebugTraffic()
@@ -690,9 +689,10 @@ public class MBOS {
         protected MBOS Sys;
         protected List<String> Traffic = new List<String>();
 
-        public UniTransceiver(MBOS sys)
+        public UniTransceiver(MBOS sys, List<String> traffic)
         {
             Sys = sys;
+            Traffic = traffic;
             Listener = Sys.IGC.UnicastListener;
             Listener.SetMessageCallback("ReceiveMessage");
         }
@@ -705,14 +705,14 @@ public class MBOS {
             MyIGCMessage message = Listener.AcceptMessage();
             String incoming = message.As<String>();
 
-            Traffic.Add("< " + incoming);
+            Traffic.Add("[U]< " + incoming);
 
             return incoming;
         }
 
         public void SendMessage(long target, String data) 
         {
-            Traffic.Add("> " + data);
+            Traffic.Add("[U]> " + data);
             Sys.IGC.SendUnicastMessage<string>(target, "whisper", data);
         }
         
