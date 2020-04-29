@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.0.3";
+const String VERSION = "1.0.4";
 const String DATA_FORMAT = "1";
 
 /*
@@ -102,7 +102,7 @@ public class Manager
                 return false;
             }
         }
-        Vector3D dockAt = connector.CubeGrid.GridIntegerToWorld(connector.Position);
+        Vector3D dockAt = connector.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
 
         if (nameAndGpsParts.Count > 1 && MBOS.ParseGPS("GPS:" + nameAndGpsParts[1], out waypoint) == false) {

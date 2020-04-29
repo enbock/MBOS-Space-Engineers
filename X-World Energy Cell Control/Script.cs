@@ -25,8 +25,9 @@ Workflow:
 * Transporter take the Energy Cell and bring it to an charger station.
 * After Battery is full charged, the transport takes the Energy Cell and transport it to an Consumer Station.
 
+Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.0.2";
+const String VERSION = "1.1.1";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -79,6 +80,14 @@ public Program()
 
 public void Save()
 {
+}
+
+public void EnableThrusters(bool enabled)
+{
+    List<IMyThrust> thrusters = new List<IMyThrust>();
+    GridTerminalSystem.GetBlocksOfType<IMyThrust>(thrusters, (IMyThrust trhuster) => trhuster.CubeGrid.EntityId == Me.CubeGrid.EntityId);
+
+    thrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);
 }
 
 String modeDispaly = "---";
@@ -195,6 +204,8 @@ public void Main(string argument, UpdateType updateSource)
             
             ActionCounter = 0;
         }
+
+        EnableThrusters(Loader.Status == MyShipConnectorStatus.Connected);
     }
 
     textSurface.WriteText(modeDispaly + "\n", true);

@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.4.0";
+const String VERSION = "1.4.2";
 const String DATA_FORMAT = "2";
 
 /**
@@ -109,9 +109,13 @@ public class DroneHangar : Station
     public List<DeliveryMission> Missions = new List<DeliveryMission>();
 
     public DroneHangar(MBOS sys, MyWaypointInfo flightIn) : base(sys, flightIn) {
+        Init();
+        Load();
+    }
+
+    public void Init() {
         FindPods();
         BroadCastEmptySlots();
-        Load();
     }
 
     public override void ExecuteMessage(String message) {
@@ -126,6 +130,9 @@ public class DroneHangar : Station
                 break;
             case "RequestTransport":
                 RequestTransport(parts);
+                break;
+            case "ResetOrders":
+                Missions.Clear();
                 break;
         }
     }
@@ -200,7 +207,7 @@ public class DroneHangar : Station
         registeredPod.Type = type;
         registeredPod.SaveConfig();
 
-        Vector3D dockAt = registeredPod.Connector.CubeGrid.GridIntegerToWorld(registeredPod.Connector.Position);
+        Vector3D dockAt = registeredPod.Connector.GetPosition();
         MBOS.Sys.Transceiver.SendMessage(
             registeredPod.Drone, 
             "DroneRegisteredAt|" + MBOS.Sys.EntityId.ToString()
@@ -422,8 +429,17 @@ public void ReadArgument(String args)
         case "ClearMissions": 
             Hangar.Missions.Clear();
             break;
+        case "Reset":
+            Hangar.Pods.ForEach((DroneHangar.Pod pod) => pod.Connector.CustomData = string.Empty);
+            Hangar.Pods.Clear();
+            Hangar.Missions.Clear();
+            Hangar.Init();
+            break;
+        case "FindPods":
+            Hangar.Init();
+            break;
         default:
-            Echo("Available Commands:\n   * FlightIn <GPS>\n");
+            Echo("Available Commands:\n   * FlightIn <GPS>\n   * FindPods <GPS>\n");
             break;
     }
 }

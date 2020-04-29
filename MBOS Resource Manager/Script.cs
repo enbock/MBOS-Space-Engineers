@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.3.2";
+const String VERSION = "1.4.5";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -205,6 +205,9 @@ public class ResourceManager {
             case "MissionCompleted":
                 MissionCompleted(long.Parse(parts[0]));
                 break;
+            case "RemoveProducer":
+                RemoveProducer(parts);
+                break;
         }
     }
 
@@ -307,6 +310,22 @@ public class ResourceManager {
         );
     }
 
+    protected void RemoveProducer(List<String> parts) {
+        String unit = parts[0];
+        MyWaypointInfo waypoint = MyWaypointInfo.Empty;
+        MBOS.ParseGPS(parts[1], out waypoint);
+        List<Producer> foundProducers = Producers.FindAll(
+            (Producer item) => item.Unit == unit && item.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
+        );
+        foundProducers.ForEach(
+            delegate(Producer producer) {
+                // TODO: Do we need mission removal?
+
+                Producers.Remove(producer);
+            }
+        );
+    }
+
     protected void UpdateResourceStock(List<String> parts) {
         long entityId = long.Parse(parts[3]);
         String unit = parts[0];
@@ -356,7 +375,7 @@ public class ResourceManager {
         int inDelivery = 0;
         foundMissions.ForEach((DeliverMission mission) => inDelivery += mission.Quantity);
         if (inDelivery >= quantity) {
-            MBOS.Sys.Echo("Requested resource " + unit + " already in delivery.");
+            MBOS.Sys.Traffic.Add("Requested resource " + unit + " already in delivery.");
             return;
         }
         
@@ -364,7 +383,7 @@ public class ResourceManager {
             (Consumer consumerItem) => consumerItem.Unit == unit && consumerItem.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
         );
         if (foundConsumers.Count == 0) {
-            MBOS.Sys.Echo("No consumer of resource " + unit + " with waypoint " + waypoint + " found.");
+            MBOS.Sys.Traffic.Add("No consumer of resource " + unit + " with waypoint " + waypoint + " found.");
             return;
         }
         foundConsumers[0].Requested = quantity;
@@ -449,7 +468,7 @@ public class ResourceManager {
             (Consumer consumerItem) => consumerItem.Unit == unit && consumerItem.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
         );
         if(foundConsumer.Count == 0) {
-            MBOS.Sys.Echo("ERROR: Update of resource without existant consumer for " + unit + " at " + waypoint);
+            MBOS.Sys.Traffic.Add("ERROR: Update of resource without existant consumer for " + unit + " at " + waypoint);
             return;
         }
         foundConsumer[0].Delivered += quantity;
@@ -466,13 +485,13 @@ public class ResourceManager {
             (Consumer consumerItem) => consumerItem.Unit == mission.Unit && consumerItem.Waypoint.Coords.Equals(mission.ConsumerWaypoint.Coords, 0.01)
         );
         if(foundConsumers.Count == 0) {
-            MBOS.Sys.Echo("ERROR: Completed mission for not found consumer " + mission.Unit + " at " + mission.ConsumerWaypoint);
+            MBOS.Sys.Traffic.Add("ERROR: Completed mission for not found consumer " + mission.Unit + " at " + mission.ConsumerWaypoint);
             return;
         }
         Consumer consumer = foundConsumers[0];
         if(consumer.Delivered < mission.Quantity) {
             // Öhm...Drone lost cargo?
-            MBOS.Sys.Echo("ERROR: Completed mission does not deliver! " + mission.Unit + " at " + mission.ConsumerWaypoint);
+            MBOS.Sys.Traffic.Add("ERROR: Completed mission does not deliver! " + mission.Unit + " at " + mission.ConsumerWaypoint);
             return;
         }
         consumer.Requested -= mission.Quantity;
@@ -502,9 +521,6 @@ public Program()
     InitProgram();
     UpdateInfo();
     Save();
-
-    Sys.BroadCastTransceiver.SendMessage("ReRegisterProducer");
-    Sys.BroadCastTransceiver.SendMessage("ReRegisterConsumer");
 }
 
 public void Save()
@@ -522,6 +538,8 @@ public void InitProgram()
 
     Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
     Echo("Program initialized.");
+    Sys.BroadCastTransceiver.SendMessage("ReRegisterProducer");
+    Sys.BroadCastTransceiver.SendMessage("ReRegisterConsumer");
 }
 
 public void Main(String argument, UpdateType updateSource)
@@ -578,6 +596,13 @@ public void ReadArgument(String args)
             if(lcd != null) {
                 Manager.Screen = lcd;
             }
+            break;
+        case "Reset":
+            Manager = null;
+            Sys.Config("Producers").Value = String.Empty;
+            Sys.Config("Consumers").Value = String.Empty;
+            Sys.Config("Missions").Value = String.Empty;
+            Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
         default:
             Echo("Available Commands: \n  * SetLCD <Name of Panel>");
@@ -636,6 +661,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
+    public List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
@@ -746,7 +772,6 @@ public class MBOS {
         block.CustomData = "FORMAT v" + DATA_FORMAT + "\n" + String.Join("\n", store.ToArray()); 
     }
 
-    protected List<String> Traffic = new List<String>();
     public class WorldTransceiver {
         
         public String Channel;
@@ -806,8 +831,8 @@ public class MBOS {
 
         public String DebugTraffic()
         {
-            if(Traffic.Count > 20) {
-                Traffic.RemoveRange(0, Traffic.Count - 20);
+            if(Traffic.Count > 60) {
+                Traffic.RemoveRange(0, Traffic.Count - 60);
             }
             
             String output = "";

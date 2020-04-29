@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.0.1";
+const String VERSION = "3.0.10";
 const String DATA_FORMAT = "3";
 
 /**
@@ -194,16 +194,19 @@ public class TransportDrone
             traveled = 0;
         }
 
+        if(Mode == "Direct") {
+            RemoteControl.SetCollisionAvoidance(Distance > 40.0);
+        }
+
         if (
             (Distance > (Mode == "Direct" ? 0.05 : 15.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
             bool isStarting = traveled < Distance && Distance > 500.0;
             double distance = isStarting ? traveled : Distance;
-            distance = 1.0 * (distance / (isStarting ? 2.0 : 4.0));
-            distance = distance > 100.0 ? 100.0 : distance;
-            float speedLimit = ((Mode == "Direct") ? 50f : 100f) / 100f * Convert.ToSingle(distance);
-            float minSpeed = (Mode == "Direct") ? 1f :  2f;
+            distance = (distance > 100.0 ? 100.0 : distance) / (isStarting ? 3.0 : 1.0);
+            float speedLimit = ((Mode == "Direct") ? 25f : 40f) / 100f * Convert.ToSingle(distance);
+            float minSpeed = 1f; //(Mode == "Direct") ? 1f :  2f;
             RemoteControl.SpeedLimit = speedLimit < minSpeed || Target.Equals(Vector3D.Zero) ? minSpeed : speedLimit;
             return;
         }
@@ -264,7 +267,7 @@ public class TransportDrone
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
+        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
             Connector.Disconnect();
         }
 
@@ -287,14 +290,14 @@ public class TransportDrone
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (IsHomeConnected() || (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic)) {
+        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
             Connector.Disconnect();
         }
 
         RemoteControl.FlightMode = FlightMode.OneWay;
         RemoteControl.SpeedLimit = 1f;
         RemoteControl.SetCollisionAvoidance(false);
-        RemoteControl.SetDockingMode(false);
+        RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         AddWaypointWithConnectorOffset(waypoint);
 
@@ -303,6 +306,10 @@ public class TransportDrone
     }
 
     protected void FlightNextPath() {
+        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
+            Connector.Disconnect();
+        }
+
         CurrentPath = FlightPaths[0];
         FlightPaths.RemoveAt(0);
         Mode = "Flight";
@@ -384,7 +391,7 @@ public class TransportDrone
         MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyThrust>(
             otherThrusters, 
             (IMyThrust thruster) => thruster.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
-                && thruster.EntityId != Connector.OtherConnector.EntityId
+                && thruster.CubeGrid.EntityId != Connector.OtherConnector.CubeGrid.EntityId
         );
 
         otherThrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);

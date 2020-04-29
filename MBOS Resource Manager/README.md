@@ -28,6 +28,8 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 ### Register producer
 * [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|<Station-GridID>|{Single|Conatiner|Liquid|Battery}|<Volume>|<Waypoint>`
 * [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityID>`
+### Remove producer
+* [U] Manager< `RemoveProducer|<Resource Name>|<Waypoint>`
 ### Register consumer
 * [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Station-GridID>|<Waypoint>`
 * [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityID>`
@@ -45,3 +47,5 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 * [U] C-Station> `ResourceDelivered|<Resource Name>|<Quantity>|<Waypoint>`
 ### Complete mission
 * [B]< `MissionCompleted|<Mission-ID>`
+### Revert orders
+* [B]> `ResetOrders`

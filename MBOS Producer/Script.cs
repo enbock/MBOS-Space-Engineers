@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "1.1.8";
+const String VERSION = "1.2.7";
 const String DATA_FORMAT = "2";
 
 /*
@@ -53,7 +53,11 @@ public class Manager
             Stock = int.Parse(parts[5]);
             RegisteredByManager = long.Parse(parts[6]);
             Reservation = int.Parse(parts[7]);
-            ConnectedWaypoint = Waypoint;
+            if (parts.Count >= 9) {
+                MBOS.ParseGPS(parts[8], out ConnectedWaypoint);
+            } else {
+                ConnectedWaypoint = Waypoint;
+            }
         }
 
         public override String ToString() {
@@ -65,17 +69,18 @@ public class Manager
                 + "*" + Stock.ToString()
                 + "*" + RegisteredByManager.ToString()
                 + "*" + Reservation.ToString()
+                + "*" + ConnectedWaypoint.ToString()
             ;
         }
 
-        public bool StockHasChanged(MBOS system) {
+        public bool StockHasChanged() {
             int oldStock = Stock;
-            UpdateStock(system);
+            UpdateStock();
 
             return oldStock != Stock;
         }
 
-        protected void UpdateStock(MBOS system) {
+        protected void UpdateStock() {
             switch(Type) {
                 case UnitType.Single:
                     if (Connector.Status != ConnectorStatusBefore) {
@@ -95,7 +100,7 @@ public class Manager
                     float max = 0f;
                     List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
 
-                    system.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
+                    MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
                         batteries,
                         (IMyTerminalBlock block) => block.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
                     );
@@ -140,7 +145,7 @@ public class Manager
                 return false;
             }
         }
-        Vector3D dockAt = connector.CubeGrid.GridIntegerToWorld(connector.Position);
+        Vector3D dockAt = connector.CubeGrid.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
 
         if (nameAndGpsParts.Count > 1 && MBOS.ParseGPS("GPS:" + nameAndGpsParts[1], out waypoint) == false) {
@@ -188,7 +193,7 @@ public class Manager
                 ProducerRegistered(parts[0], long.Parse(parts[1]));
                 break;
             case "ReRegisterProducer":
-                Resources.ForEach((Resource resource) => BroadCastResource(resource));
+                ReRegisterProducer();
                 break;
             case "OrderResource":
                 if(MBOS.ParseGPS(parts[2], out waypoint) == false) {
@@ -196,15 +201,28 @@ public class Manager
                 }
                 OrderResource(parts[0], int.Parse(parts[1]), waypoint);
                 break;
+            case "ResetOrders":
+                Resources.ForEach((Resource resource) => resource.Reservation = 0);
+                break;
         }
+    }
+
+    protected void ReRegisterProducer() {
+        Resources.ForEach(
+            delegate(Resource resource) {
+                resource.RegisteredByManager = 0L;
+                SendUpdate(resource);
+            }
+        );
     }
 
     public void UpdateStock(bool force = false)
     {
         Resources.ForEach(delegate(Resource resource) {
-            if(resource.RegisteredByManager == 0) return;
-            if(force == true) SendUpdate(resource);
-            if(resource.StockHasChanged(System) == false) return;
+            UpgradeResourceWaypoint(resource);
+
+            if (resource.Stock < resource.Reservation) resource.Reservation = resource.Stock;
+            if(resource.StockHasChanged() == false && force == false) return;
 
             // Apply reservations
             switch(resource.Type) {
@@ -220,34 +238,42 @@ public class Manager
         });
     }
 
-    protected void UpgradeResourceWaypoints() {
-        Resources.ForEach(
-            delegate(Resource resource) {
-                if (
-                    (resource.Connector.Status == MyShipConnectorStatus.Connected || resource.Connector.Status == MyShipConnectorStatus.Connectable)
-                    && resource.Waypoint.Equals(resource.ConnectedWaypoint)
-                ) {
-                    List<IMyShipConnector> otherFreeConnectors = new List<IMyShipConnector>();
-                    MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
-                        otherFreeConnectors, 
-                        (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
-                            && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
-                    );
-                    if (otherFreeConnectors.Count == 0) return;
-                    resource.ConnectedWaypoint = new MyWaypointInfo(
-                        resource.Unit + " Connected Element Target", 
-                        otherFreeConnectors[0].CubeGrid.GridIntegerToWorld(otherFreeConnectors[0].Position)
-                    );
-                    BroadCastResource(resource);
-                }
-                /*if (
-                    (resource.Connector.Status != MyShipConnectorStatus.Connected && resource.Connector.Status != MyShipConnectorStatus.Connectable)
-                    && resource.Waypoint.Equals(resource.ConnectedWaypoint) == false
-                ) {
-                    resource.ConnectedWaypoint = resource.Waypoint;
-                }*/
+    protected bool UpgradeResourceWaypoint(Resource resource) {
+        if (
+            resource.Connector.Status == MyShipConnectorStatus.Connected 
+            //Other only visible in connected state|| resource.Connector.Status == MyShipConnectorStatus.Connectable)
+            //&& resource.Waypoint.Equals(resource.ConnectedWaypoint)
+        ) {
+            List<IMyShipConnector> otherFreeConnectors = new List<IMyShipConnector>();
+            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+                otherFreeConnectors, 
+                (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
+                        && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
+            );
+            if (otherFreeConnectors.Count == 0) {
+                return false;
             }
-        );
+            MyWaypointInfo newWaypoint = new MyWaypointInfo(
+                resource.Unit + " Connected", 
+                otherFreeConnectors[0].GetPosition() //CubeGrid.GridIntegerToWorld(otherFreeConnectors[0].Position)
+            );
+            if (newWaypoint.Equals(resource.ConnectedWaypoint) == false) {
+                if (resource.RegisteredByManager != 0L) {
+                    TransmitResourceRemoval(resource);
+                }
+                resource.ConnectedWaypoint = newWaypoint;
+                BroadCastResource(resource);
+
+                return true;
+            }
+        }
+        /*if (
+            (resource.Connector.Status != MyShipConnectorStatus.Connected && resource.Connector.Status != MyShipConnectorStatus.Connectable)
+            && resource.Waypoint.Equals(resource.ConnectedWaypoint) == false
+        ) {
+            resource.ConnectedWaypoint = resource.Waypoint;
+        }*/
+        return false;
     }
 
     protected void Load() {
@@ -268,17 +294,23 @@ public class Manager
                 Resources.Add(newResource);
             }
         });
-        UpgradeResourceWaypoints();
     }
 
-    protected void SendUpdate(Resource resource, int overrideStock = -1) {
-        UpgradeResourceWaypoints();
-        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) return; // message only connected waypoint
+    protected void SendUpdate(Resource resource) {
+        if(UpgradeResourceWaypoint(resource)) return;
+        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
+            MBOS.Sys.Traffic.Add("SendUpdate blocked." + resource.ConnectedWaypoint);
+            return;
+        }
+        if(resource.RegisteredByManager == 0L) {
+            BroadCastResource(resource);
+            return;
+        }
 
         System.Transceiver.SendMessage(
             resource.RegisteredByManager,
             "UpdateResourceStock|" + resource.Unit 
-            + "|" + (overrideStock != -1 ? overrideStock.ToString() : resource.Stock.ToString())
+            + "|" + resource.Stock.ToString()
             + "|" + resource.Reservation.ToString()
             + "|" + System.EntityId.ToString()
             + "|" + resource.ConnectedWaypoint.ToString()
@@ -286,7 +318,11 @@ public class Manager
     }
 
     protected void BroadCastResource(Resource resource) {
-        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) return; // message only connected waypoint
+        if(UpgradeResourceWaypoint(resource)) return;
+        if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
+            MBOS.Sys.Traffic.Add("BroadCastResource blocked." + resource.ConnectedWaypoint);
+            return;
+        }
 
         System.BroadCastTransceiver.SendMessage(
             "RegisterProducer|" + resource.Unit 
@@ -296,6 +332,14 @@ public class Manager
             + "|" + resource.VolumePerUnit.ToString()
             + "|" + resource.ConnectedWaypoint.ToString()
         );
+    }
+
+    protected void TransmitResourceRemoval(Resource resource) {
+        System.BroadCastTransceiver.SendMessage(
+            "RemoveProducer|" + resource.Unit 
+            + "|" + resource.ConnectedWaypoint.ToString()
+        );
+        resource.RegisteredByManager = 0L;
     }
 
     protected void ProducerRegistered(String unit, long managerId) {
@@ -410,21 +454,16 @@ public void ReadArgument(String args)
                 Echo("Registration failed.");
             }
             break;
-        case "ForceUpdate":
-            ProducerManager.UpdateStock(true);
-            break;
         case "SingleUpdateStockWhen":
             ProducerManager.SingleUnitStockWhenBefore = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
             ProducerManager.SingleUnitStockWhenNow = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[1]);
             ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhenNow = ProducerManager.SingleUnitStockWhenNow);
             Echo("Single Unit stock filled when case of change from " + ProducerManager.SingleUnitStockWhenBefore + " to " + ProducerManager.SingleUnitStockWhenNow);
             break;
-        case "Reset":
-            ProducerManager.Resources.Clear();
-            break;
-        case "ClearReservation":
+        case "ClearReservations":
             ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.Reservation = 0);
             ProducerManager.UpdateStock(true);
+            Echo("Reservations cleared.");
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");
@@ -440,7 +479,6 @@ public void ReadArgument(String args)
             Echo(
                 "Available Commands: \n"
                 + " * Register <Resource Name> {Single|Conatiner|Liquid} <Volume> <Connector> [<GPS>]\n"
-                + " * ForceUpdate\n"
                 + " * SingleUpdateStockWhen <BeforeState:{Connected|Connectable|Unconnected}> <NowState:{Connected|Connectable|Unconnected}>\n"
             );
             break;
@@ -498,7 +536,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
-    protected List<String> Traffic = new List<String>();
+    public List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
