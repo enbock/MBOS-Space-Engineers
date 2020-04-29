@@ -27,12 +27,12 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 [U] == Unicast
 ### Register producer
 * [B] P-Station> `RegisterProducer|<Resource Name>|<Station-EntityID>|<Station-GridID>|{Single|Conatiner|Liquid|Battery}|<Volume>|<Waypoint>`
-* [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityID>`
+* [U] Manager< `ProducerRegistered|<Resource Name>|<Manager-EntityID>|<Waypoint>`
 ### Remove producer
 * [U] Manager< `RemoveProducer|<Resource Name>|<Waypoint>`
 ### Register consumer
 * [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Station-GridID>|<Waypoint>`
-* [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityID>`
+* [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityID>|<Waypoint>`
 ### Repeat registrations
 * [B] Manager> `ReRegisterProducer`
 * [B] Manager> `ReRegisterConsumer`

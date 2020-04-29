@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.4.2";
+const String VERSION = "1.5.0";
 const String DATA_FORMAT = "2";
 
 /**
@@ -52,7 +52,6 @@ public class DroneHangar : Station
             Connector = connector;
 
             LoadConfig();
-            SaveConfig(); // init
         }
 
         protected void LoadConfig() {
@@ -60,7 +59,7 @@ public class DroneHangar : Station
             String drone = MBOS.Sys.Config("Drone", ConfigList).Value;
             Drone = drone == String.Empty ? 0L : long.Parse(drone);
             Type = MBOS.Sys.Config("Type", ConfigList).Value;
-            Type = Type == String.Empty ? Type : "none";
+            Type = Type != String.Empty ? Type : "none";
         }
 
         public void SaveConfig() {
@@ -167,7 +166,6 @@ public class DroneHangar : Station
     }
 
     protected void FindPods() {
-        Pods.Clear();
         List<IMyShipConnector> connectors = new List<IMyShipConnector>();
         MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
             connectors, 
@@ -177,6 +175,8 @@ public class DroneHangar : Station
         MBOS.Sys.Echo("Found "+connectors.Count.ToString()+" connectors");
 
         foreach(IMyShipConnector connector in connectors) {
+            List<Pod> pods = Pods.FindAll((Pod podItem) => podItem.Connector.EntityId == connector.EntityId);
+            if (pods.Count > 0) continue;
             Pods.Add(new Pod(connector));
         }
     }
@@ -240,12 +240,12 @@ public class DroneHangar : Station
         SearchAssingableMissions();
     }
 
-    protected void CheckHomeCommingMissions()
+    public void CheckHomeCommingMissions(String lostPod = "")
     {
         List<DeliveryMission> runningMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Started == true);
         runningMissions.ForEach(
             delegate(DeliveryMission mission) {
-                if(mission.Pod.Connector.Status != MyShipConnectorStatus.Connected) return;
+                if(mission.Pod.Connector.Status != MyShipConnectorStatus.Connected && mission.Pod.Connector.CustomName == lostPod) return;
 
                 Missions.Remove(mission);
                 MBOS.Sys.BroadCastTransceiver.SendMessage("MissionCompleted|" + mission.MissionId);
@@ -430,16 +430,25 @@ public void ReadArgument(String args)
             Hangar.Missions.Clear();
             break;
         case "Reset":
-            Hangar.Pods.ForEach((DroneHangar.Pod pod) => pod.Connector.CustomData = string.Empty);
-            Hangar.Pods.Clear();
             Hangar.Missions.Clear();
             Hangar.Init();
             break;
         case "FindPods":
             Hangar.Init();
             break;
+        case "PodLost":
+            List<DroneHangar.Pod> lostPods = Hangar.Pods.FindAll((DroneHangar.Pod podItem) => podItem.Connector.CustomName == allArgs);
+            if (lostPods.Count == 0) {
+                Echo("Pod " + allArgs + " not found.");
+                break;
+            }
+            Hangar.CheckHomeCommingMissions(allArgs);
+            Hangar.Pods.Remove(lostPods[0]);
+            Echo("Pod " + allArgs + " removed from system.");
+            break;
+            
         default:
-            Echo("Available Commands:\n   * FlightIn <GPS>\n   * FindPods <GPS>\n");
+            Echo("Available Commands:\n   * FlightIn <GPS>\n   * FindPods <GPS>\n   * PodLost <Exact name of pod>\n");
             break;
     }
 }

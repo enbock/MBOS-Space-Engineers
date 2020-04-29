@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.4.5";
+const String VERSION = "1.5.1";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -306,7 +306,7 @@ public class ResourceManager {
 
         Sys.Transceiver.SendMessage(
             newProducer.EntityId, 
-            "ProducerRegistered|" + newProducer.Unit + "|" + Sys.EntityId
+            "ProducerRegistered|" + newProducer.Unit + "|" + Sys.EntityId + "|" + newProducer.Waypoint.ToString()
         );
     }
 
@@ -359,7 +359,7 @@ public class ResourceManager {
 
         Sys.Transceiver.SendMessage(
             newConsumer.EntityId, 
-            "ConsumerRegistered|" + newConsumer.Unit + "|" + Sys.EntityId
+            "ConsumerRegistered|" + newConsumer.Unit + "|" + Sys.EntityId + "|" + newConsumer.Waypoint.ToString()
         );
     }
 
@@ -369,14 +369,16 @@ public class ResourceManager {
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
         MBOS.ParseGPS(parts[2], out waypoint);
         
-        List<DeliverMission> foundMissions = Missions.FindAll(
-            (DeliverMission mission) => mission.Unit == unit && mission.ConsumerWaypoint.Coords.Equals(waypoint.Coords, 0.01)
-        );
-        int inDelivery = 0;
-        foundMissions.ForEach((DeliverMission mission) => inDelivery += mission.Quantity);
-        if (inDelivery >= quantity) {
-            MBOS.Sys.Traffic.Add("Requested resource " + unit + " already in delivery.");
-            return;
+        if (quantity > 0) {
+            List<DeliverMission> foundMissions = Missions.FindAll(
+                (DeliverMission mission) => mission.Unit == unit && mission.ConsumerWaypoint.Coords.Equals(waypoint.Coords, 0.01)
+            );
+            int inDelivery = 0;
+            foundMissions.ForEach((DeliverMission mission) => inDelivery += mission.Quantity);
+            if (inDelivery >= quantity) {
+                MBOS.Sys.Traffic.Add("Requested resource " + unit + " already in delivery.");
+                return;
+            }
         }
         
         List<Consumer> foundConsumers = Consumers.FindAll(
@@ -391,29 +393,31 @@ public class ResourceManager {
 
     public void SearchRequestingConsumerForMissions() {
         List<Consumer> requestingConsumers = Consumers.FindAll((Consumer consumerItem) => (consumerItem.Requested - consumerItem.Delivered) > 0);
-        requestingConsumers.ForEach(
-            delegate(Consumer consumer) {
-                List<DeliverMission> foundMissions = Missions.FindAll(
-                    (DeliverMission mission) => mission.Unit == consumer.Unit && mission.ConsumerWaypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
-                );
-                if(foundMissions.Count > 0) {
-                    return; // only one drone can fly to point ;)
-                }
 
-                FindProducerAndCreateMission(consumer);
+         for(int index = 0; index < requestingConsumers.Count; index ++) {
+            Consumer consumer = requestingConsumers[index];
+            List<DeliverMission> foundMissions = Missions.FindAll(
+                (DeliverMission mission) => mission.Unit == consumer.Unit && mission.ConsumerWaypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
+            );
+            if(foundMissions.Count > 0) {
+                return; // only one drone can fly to point ;)
             }
-        );
+
+            if (FindProducerAndCreateMission(consumer)) {
+                return; // only one mission per itteration. Otherwise we got duplicated ids and a drone chaos ;)
+            }
+        }
     }
 
-    protected void FindProducerAndCreateMission(Consumer consumer) {
+    protected bool FindProducerAndCreateMission(Consumer consumer) {
         int neededQuantity = consumer.Requested - consumer.Delivered;
-        if (neededQuantity <= 0) return;
+        if (neededQuantity <= 0) return false;
         
         List<Producer> foundProducers = Producers.FindAll(
             (Producer producer) => producer.Unit == consumer.Unit && (producer.Stock - producer.Reserved) > 0
         );
 
-        for(int index = 0; index < foundProducers.Count && neededQuantity > 0; index ++) {
+        for(int index = 0; index < foundProducers.Count; index ++) {
             Producer producer = foundProducers[index];
             
             List<DeliverMission> foundMissions = Missions.FindAll(
@@ -454,8 +458,10 @@ public class ResourceManager {
                     + "|" + consumer.GridId.ToString()
             );
 
-            return; // only one mission per target/consumer!
+            return true; // only one mission per target/consumer!
         }
+
+        return false;
     }
 
     protected void ResourceDelivered(List<string> parts) {
@@ -471,6 +477,11 @@ public class ResourceManager {
             MBOS.Sys.Traffic.Add("ERROR: Update of resource without existant consumer for " + unit + " at " + waypoint);
             return;
         }
+        List<DeliverMission> foundMissions = Missions.FindAll((DeliverMission missionItem) => missionItem.ConsumerWaypoint.Coords.Equals(foundConsumer[0].Waypoint.Coords, 0.01));
+        if (foundMissions.Count == 0) {
+            MBOS.Sys.Traffic.Add("ERROR: Delivery ignored! No mission found for " + unit + " at " + waypoint);
+            return;
+        } 
         foundConsumer[0].Delivered += quantity;
     }
 
@@ -553,6 +564,10 @@ public void Main(String argument, UpdateType updateSource)
     Manager.SearchRequestingConsumerForMissions();
     Save();
     UpdateInfo();
+
+    List<ResourceManager.Consumer> requestingConsumers = Manager.Consumers.FindAll((ResourceManager.Consumer consumerItem) => (consumerItem.Requested - consumerItem.Delivered) > 0);
+    
+    Runtime.UpdateFrequency = requestingConsumers.Count > 0 ? UpdateFrequency.Update100 : UpdateFrequency.None;
 }
 
 public void UpdateInfo()
@@ -881,8 +896,8 @@ public class MBOS {
         
         public String DebugTraffic()
         {
-            if(Traffic.Count > 20) {
-                Traffic.RemoveRange(0, Traffic.Count - 20);
+            if(Traffic.Count > 60) {
+                Traffic.RemoveRange(0, Traffic.Count - 60);
             }
             
             String output = "";

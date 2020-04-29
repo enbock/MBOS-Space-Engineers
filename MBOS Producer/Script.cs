@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "1.2.7";
+const String VERSION = "1.3.0";
 const String DATA_FORMAT = "2";
 
 /*
@@ -190,7 +190,14 @@ public class Manager
 
         switch(command) {
             case "ProducerRegistered":
-                ProducerRegistered(parts[0], long.Parse(parts[1]));
+                string unit = parts[0];
+                long managerId = long.Parse(parts[1]);
+                parts.RemoveRange(0, 2);
+                if (MBOS.ParseGPS(String.Join(" ", parts.ToArray()), out waypoint) == false) {
+                    MBOS.Sys.Traffic.Add("ERROR: Registered message: Waypoint wrong.");
+                    break;
+                } 
+                ProducerRegistered(unit, managerId, waypoint);
                 break;
             case "ReRegisterProducer":
                 ReRegisterProducer();
@@ -250,6 +257,9 @@ public class Manager
                 (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
                         && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
             );
+            if (resource.RegisteredByManager != 0L && resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
+                TransmitResourceRemoval(resource);
+            }
             if (otherFreeConnectors.Count == 0) {
                 return false;
             }
@@ -292,17 +302,22 @@ public class Manager
                 newResource.SingleUnitStockWhenNow = SingleUnitStockWhenNow;
                 newResource.SingleUnitStockWhenBefore = SingleUnitStockWhenBefore;
                 Resources.Add(newResource);
+                SendUpdate(newResource);
             }
         });
     }
 
     protected void SendUpdate(Resource resource) {
-        if(UpgradeResourceWaypoint(resource)) return;
+        if(UpgradeResourceWaypoint(resource)) {
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. Upgrade happened.(" + resource.Stock + ")" + resource.ConnectedWaypoint);
+            return;
+        }
         if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
-            MBOS.Sys.Traffic.Add("SendUpdate blocked." + resource.ConnectedWaypoint);
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
             return;
         }
         if(resource.RegisteredByManager == 0L) {
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. Register first. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
             BroadCastResource(resource);
             return;
         }
@@ -342,9 +357,9 @@ public class Manager
         resource.RegisteredByManager = 0L;
     }
 
-    protected void ProducerRegistered(String unit, long managerId) {
+    protected void ProducerRegistered(String unit, long managerId, MyWaypointInfo waypoint) {
         Resources.ForEach(delegate(Resource resource){
-            if (resource.Unit != unit) return;
+            if (resource.Unit != unit || resource.ConnectedWaypoint.Coords.Equals(waypoint.Coords, 0.01) == false) return;
             resource.RegisteredByManager = managerId;
             SendUpdate(resource);
         });
@@ -706,8 +721,8 @@ public class MBOS {
 
         public String DebugTraffic()
         {
-            if(Traffic.Count > 20) {
-                Traffic.RemoveRange(0, Traffic.Count - 20);
+            if(Traffic.Count > 60) {
+                Traffic.RemoveRange(0, Traffic.Count - 60);
             }
             
             String output = "";
@@ -756,8 +771,8 @@ public class MBOS {
         
         public String DebugTraffic()
         {
-            if(Traffic.Count > 20) {
-                Traffic.RemoveRange(0, Traffic.Count - 20);
+            if(Traffic.Count > 60) {
+                Traffic.RemoveRange(0, Traffic.Count - 60);
             }
             
             String output = "";

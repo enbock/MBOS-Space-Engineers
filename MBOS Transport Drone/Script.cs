@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.0.10";
+const String VERSION = "3.1.2";
 const String DATA_FORMAT = "3";
 
 /**
@@ -141,19 +141,6 @@ public class TransportDrone
         );
     }
 
-    public void Dock() 
-    {
-        Mode = "Dock";
-        RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetAutoPilotEnabled(false);
-        RemoteControl.SetCollisionAvoidance(true);
-        RemoteControl.SetDockingMode(true);
-        RemoteControl.ClearWaypoints();
-        Connector.Connect();
-        Mark = DateTime.Now.AddSeconds(5);
-    }
-
     public void GoHome() {
         if(IsHomeConnected() == false) {
             AddFlightPath(Homepath);
@@ -169,18 +156,19 @@ public class TransportDrone
         return Connector.OtherConnector.CustomData.Contains(Sys.EntityId.ToString());
     }
 
+    public bool IsOtherHome() {
+        if (Connector.Status != MyShipConnectorStatus.Connectable) {
+            return false;
+        }
+
+        return Distance < 5.0 && Connector.OtherConnector.CustomData.Contains(Sys.EntityId.ToString());
+    }
+
     protected void Start() 
     {
         Lights.TurnOn();
-        Mark = DateTime.Now.AddSeconds(20);
+        Mark = DateTime.Now.AddSeconds(5);
         Mode = "Mark";
-    }
-
-    protected void StartFlight() 
-    {
-        if (FlightPaths.Count == 0) return;
-        
-        StartingFlight(FlightPaths[0].Waypoints[0]);
     }
 
     protected void CheckFlight()
@@ -194,19 +182,25 @@ public class TransportDrone
             traveled = 0;
         }
 
-        if(Mode == "Direct") {
-            RemoteControl.SetCollisionAvoidance(Distance > 40.0);
+        bool isStarting = traveled < Distance && Distance > 500.0;
+        bool withAvoidance = isStarting ? (traveled > 60.0) : (Distance > 60.0 || CurrentPath.HasToDock == false);
+        RemoteControl.SetCollisionAvoidance(withAvoidance);
+        if(withAvoidance) {
+            Lights.TurnOn();
+        } else {
+            Lights.TurnOff(true);
         }
 
         if (
             (Distance > (Mode == "Direct" ? 0.05 : 15.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
-            bool isStarting = traveled < Distance && Distance > 500.0;
-            double distance = isStarting ? traveled : Distance;
+            // Flight mode "start" with max speed...others not.
+            double distance = isStarting && Mode != "Flight" ? traveled : Distance;
             distance = (distance > 100.0 ? 100.0 : distance) / (isStarting ? 3.0 : 1.0);
-            float speedLimit = ((Mode == "Direct") ? 25f : 40f) / 100f * Convert.ToSingle(distance);
-            float minSpeed = 1f; //(Mode == "Direct") ? 1f :  2f;
+            float speedLimit = ((Mode == "Direct") ? 25f : 25f) / 100f * Convert.ToSingle(distance);
+            float minSpeed = (Mode == "Direct") ? 0.75f :  1f;
+            if (distance < 2.0) speedLimit = 1f;
             RemoteControl.SpeedLimit = speedLimit < minSpeed || Target.Equals(Vector3D.Zero) ? minSpeed : speedLimit;
             return;
         }
@@ -215,6 +209,20 @@ public class TransportDrone
 
         switch(Mode) {
             case "Direct":
+                if (Connector.Status == MyShipConnectorStatus.Connected) {
+                    Mark = DateTime.Now.AddSeconds(20);
+                    Mode = "WaitForUnload";
+                    break;
+                }
+                Dock();
+                break;
+            case "WaitForUnload":
+                if (Connector.Status == MyShipConnectorStatus.Connected) {
+                    // Ok, unload failed. Back to last point and dock again.
+                    DirectFlight(CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1]);
+                    Mode = "Flight"; 
+                    break;
+                }
                 Dock();
                 break;
             case "Flight":
@@ -237,7 +245,11 @@ public class TransportDrone
                 }
                 break;
             case "Dock":
-                MarkDock();
+                Mode = "Mark";
+                if (IsHomeConnected()) {
+                    Batteries.SetReacharge();
+                    Lights.TurnOff();
+                }
                 break;
             case "Start":
             case "Mark":
@@ -280,6 +292,30 @@ public class TransportDrone
 
         RemoteControl.SetAutoPilotEnabled(true);
         EnableCargoThrusters(true);
+    }
+
+    public void Dock() 
+    {
+        Mode = "Dock";
+        RemoteControl.FlightMode = FlightMode.OneWay;
+        RemoteControl.SpeedLimit = 1f;
+        RemoteControl.SetAutoPilotEnabled(false);
+        RemoteControl.SetCollisionAvoidance(true);
+        RemoteControl.SetDockingMode(true);
+        RemoteControl.ClearWaypoints();
+        if(IsOtherHome() && FlightPaths.Count == 0) {
+            Connector.Connect();
+            Mark = DateTime.Now.AddSeconds(3);
+        } else {
+            Mark = DateTime.Now.AddSeconds(15);
+        }
+    }
+
+    protected void StartFlight() 
+    {
+        if (FlightPaths.Count == 0) return;
+        
+        StartingFlight(FlightPaths[0].Waypoints[0]);
     }
 
     protected void DirectFlight(MyWaypointInfo waypoint)
@@ -329,19 +365,6 @@ public class TransportDrone
         
         RemoteControl.SetAutoPilotEnabled(true);
         EnableCargoThrusters(true);
-    }
-
-    protected void MarkDock()
-    {
-        Mode = "Mark";
-        Connector.Connect();
-        if(Connector.Status == MyShipConnectorStatus.Connected) {
-            Mark = DateTime.Now.AddSeconds(15);
-            if (IsHomeConnected()) {
-                Batteries.SetReacharge();
-                Lights.TurnOff();
-            }
-        }
     }
 
     public Vector3D CalculateConnectorOffset() {
@@ -905,10 +928,12 @@ public class Lights {
         }
     }
 
-    public void TurnOff() 
+    public void TurnOff(bool reflectorOnly = false) 
     {
         foreach(IMyLightingBlock light in LightList) {
-            light.Enabled = false;
+            if (reflectorOnly == false || light is IMyReflectorLight) {
+                light.Enabled = false;
+            }
         }
     }
 }

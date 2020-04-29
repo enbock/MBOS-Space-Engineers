@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.0.4";
+const String VERSION = "1.1.1";
 const String DATA_FORMAT = "1";
 
 /*
@@ -28,12 +28,14 @@ public class Manager
         public int Stock = 0;
         public long RegisteredByManager = 0;
         
-        public Resource(String unit, UnitType type, int requiredStock, IMyShipConnector connector, MyWaypointInfo waypoint) {
+        public Resource(String unit, UnitType type, int requiredStock, IMyShipConnector connector) {
             Unit = unit;
             Type = type;
             Connector = connector;
-            Waypoint = waypoint;
             RequiredStock = requiredStock;
+
+            Vector3D dockAt = Connector.GetPosition();
+            Waypoint = new MyWaypointInfo(Unit + " Target", dockAt);
         }
 
         public Resource(MBOS system, String data) {
@@ -43,7 +45,10 @@ public class Manager
             Type = (UnitType) Enum.Parse(typeof(UnitType), parts[1]);
             RequiredStock = int.Parse(parts[2]);
             Connector = system.GetBlock(parts[3]) as IMyShipConnector;
-            MBOS.ParseGPS(parts[4], out Waypoint);
+            
+            Vector3D dockAt = Connector.GetPosition();
+            Waypoint = new MyWaypointInfo(Unit + " Target", dockAt);
+            
             Stock = int.Parse(parts[5]);
             RegisteredByManager = long.Parse(parts[6]);
         }
@@ -59,14 +64,14 @@ public class Manager
             ;
         }
 
-        public bool StockHasChanged(MBOS system) {
+        public bool StockHasChanged() {
             int oldStock = Stock;
-            UpdateStock(system);
+            UpdateStock();
 
             return oldStock != Stock;
         }
 
-        protected void UpdateStock(MBOS system) {
+        protected void UpdateStock() {
             switch(Type) {
                 case UnitType.Single:
                 case UnitType.Battery:
@@ -91,12 +96,9 @@ public class Manager
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
         parts.RemoveRange(0, 3);
 
-        String nameAndGpsValue = String.Join(" ", parts.ToArray());
-        List<String> nameAndGpsParts = new List<String>(
-             nameAndGpsValue.Split(new string[] {" GPS:"}, StringSplitOptions.RemoveEmptyEntries)
-        );
+        String name = String.Join(" ", parts.ToArray());
 
-        IMyShipConnector connector = System.GetBlockByName(nameAndGpsParts[0]) as IMyShipConnector;
+        IMyShipConnector connector = System.GetBlockByName(name) as IMyShipConnector;
         if (connector == null) {
             if (connector == null) {
                 return false;
@@ -104,10 +106,6 @@ public class Manager
         }
         Vector3D dockAt = connector.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
-
-        if (nameAndGpsParts.Count > 1 && MBOS.ParseGPS("GPS:" + nameAndGpsParts[1], out waypoint) == false) {
-            return false;
-        }
 
         List<Resource> foundResources = Resources.FindAll(
             (Resource resource) => resource.Unit == unit 
@@ -120,7 +118,7 @@ public class Manager
             newResource = foundResources[0];
             newResource.RequiredStock = requiredStock;
         } else {
-            newResource = new Resource(unit, type, requiredStock, connector, waypoint);
+            newResource = new Resource(unit, type, requiredStock, connector);
             Resources.Add(newResource);
         }
 
@@ -142,7 +140,15 @@ public class Manager
 
         switch(command) {
             case "ConsumerRegistered":
-                ConsumerRegistered(parts[0], long.Parse(parts[1]));
+                string unit = parts[0];
+                long managerId = long.Parse(parts[1]);
+                parts.RemoveRange(0, 2);
+                MyWaypointInfo waypoint = MyWaypointInfo.Empty;
+                if (MBOS.ParseGPS(String.Join(" ", parts.ToArray()), out waypoint) == false) {
+                    MBOS.Sys.Traffic.Add("ERROR: Registered message: Waypoint wrong.");
+                    break;
+                } 
+                ConsumerRegistered(unit, managerId, waypoint);
                 break;
             case "ReRegisterConsumer":
                 Resources.ForEach((Resource resource) => BroadCastResource(resource));
@@ -150,29 +156,33 @@ public class Manager
         }
     }
 
-    public void UpdateStock(bool force = false)
+    public void UpdateStock()
     {
         Resources.ForEach(delegate(Resource resource) {
             if(resource.RegisteredByManager == 0) return;
             int oldStock = resource.Stock;
-            if(resource.StockHasChanged(System) == false && force == false) return;
+            if(resource.StockHasChanged() == false) return;
 
             int deliveredStock = resource.Stock - oldStock;
             if(deliveredStock > 0) {
-                System.Transceiver.SendMessage(
+                MBOS.Sys.Transceiver.SendMessage(
                     resource.RegisteredByManager,
                     "ResourceDelivered|" + resource.Unit + "|" + deliveredStock.ToString() + "|" + resource.Waypoint.ToString()
                 );
             }
 
-            int neededQuantity = resource.RequiredStock - resource.Stock;
-            if (neededQuantity > 0) {
-                System.Transceiver.SendMessage(
-                    resource.RegisteredByManager,
-                    "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
-                );
-            }
+            UpdateStock(resource);
         });
+    }
+
+    protected void UpdateStock(Resource resource) {
+        int neededQuantity = resource.RequiredStock - resource.Stock;
+        //if (neededQuantity > 0) {
+            MBOS.Sys.Transceiver.SendMessage(
+                resource.RegisteredByManager,
+                "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
+            );
+        //}
     }
 
     protected void Load() {
@@ -195,11 +205,11 @@ public class Manager
         );
     }
 
-    protected void ConsumerRegistered(String unit, long managerId) {
+    protected void ConsumerRegistered(String unit, long managerId, MyWaypointInfo waypoint) {
         Resources.ForEach(delegate(Resource resource){
-            if (resource.Unit != unit) return;
+            if (resource.Unit != unit || resource.Waypoint.Coords.Equals(waypoint.Coords, 0.01) == false) return;
             resource.RegisteredByManager = managerId;
-            UpdateStock(true);
+            UpdateStock(resource);
         });
     }
 }
@@ -366,7 +376,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
-    protected List<String> Traffic = new List<String>();
+    public List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
