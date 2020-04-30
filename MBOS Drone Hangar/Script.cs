@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.5.0";
+const String VERSION = "1.5.2";
 const String DATA_FORMAT = "2";
 
 /**
@@ -106,6 +106,8 @@ public class DroneHangar : Station
 
     public List<Pod> Pods = new List<Pod>();
     public List<DeliveryMission> Missions = new List<DeliveryMission>();
+    public long WaitBetweenStarts = 1L; // in seconds
+    protected DateTime LastStart = DateTime.Now;
 
     public DroneHangar(MBOS sys, MyWaypointInfo flightIn) : base(sys, flightIn) {
         Init();
@@ -245,7 +247,11 @@ public class DroneHangar : Station
         List<DeliveryMission> runningMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Started == true);
         runningMissions.ForEach(
             delegate(DeliveryMission mission) {
-                if(mission.Pod.Connector.Status != MyShipConnectorStatus.Connected && mission.Pod.Connector.CustomName == lostPod) return;
+                if(
+                    mission.Pod.Connector.Status != MyShipConnectorStatus.Connected 
+                    && mission.Pod.Connector.Status != MyShipConnectorStatus.Connectable
+                    && (lostPod == "" || mission.Pod.Connector.CustomName != lostPod)
+                ) return;
 
                 Missions.Remove(mission);
                 MBOS.Sys.BroadCastTransceiver.SendMessage("MissionCompleted|" + mission.MissionId);
@@ -259,7 +265,7 @@ public class DroneHangar : Station
         
         startingMissions.ForEach(
             delegate(DeliveryMission mission) {
-                if (mission.Pod.Connector.Status == MyShipConnectorStatus.Connected) return;
+                if (mission.Pod.Connector.Status == MyShipConnectorStatus.Connected || mission.Pod.Connector.Status == MyShipConnectorStatus.Connectable) return;
                 mission.Started = true;
             }
         );
@@ -267,13 +273,17 @@ public class DroneHangar : Station
     
     protected void SearchAssingableMissions()
     {
+        if (LastStart > DateTime.Now) return;
         List<DeliveryMission> queuedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == null);
         
         queuedMissions.ForEach(
             delegate(DeliveryMission mission) {
+                if (LastStart > DateTime.Now) return;
+                
                 List<Pod> freePods = Pods.FindAll(
                     delegate(Pod podItem) {
-
+                        if (LastStart > DateTime.Now) return false;
+                        
                         List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
                         
                         IMyProgrammableBlock block = MBOS.Sys.GridTerminalSystem.GetBlockWithId(podItem.Drone) as IMyProgrammableBlock;
@@ -297,6 +307,7 @@ public class DroneHangar : Station
                             return false;
                         }
 
+                        // not already assigned?
                         List<DeliveryMission> assignedMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.Pod == podItem);
 
                         return assignedMissions.Count == 0;
@@ -306,6 +317,8 @@ public class DroneHangar : Station
                 Pod pod = freePods[0];
                 mission.Drone = pod.Drone;
                 mission.Pod = pod;
+
+                LastStart = DateTime.Now.AddSeconds(WaitBetweenStarts);
 
                 MBOS.Sys.Transceiver.SendMessage(mission.Drone, "AddFlightPath|" + mission.FlightPath);
                 MBOS.Sys.Transceiver.SendMessage(mission.Drone, "StartDrone");

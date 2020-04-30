@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.5.1";
+const String VERSION = "1.5.3";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -400,7 +400,7 @@ public class ResourceManager {
                 (DeliverMission mission) => mission.Unit == consumer.Unit && mission.ConsumerWaypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
             );
             if(foundMissions.Count > 0) {
-                return; // only one drone can fly to point ;)
+                continue; // only one drone can fly to point ;)
             }
 
             if (FindProducerAndCreateMission(consumer)) {
@@ -506,7 +506,9 @@ public class ResourceManager {
             return;
         }
         consumer.Requested -= mission.Quantity;
+        consumer.Requested = consumer.Requested < 0 ? 0 : consumer.Requested;
         consumer.Delivered -= mission.Quantity;
+        consumer.Delivered = consumer.Delivered < 0 ? 0 : consumer.Delivered;
     }
 
     protected String MapUnitTypeToDroneType(UnitType unitType) {

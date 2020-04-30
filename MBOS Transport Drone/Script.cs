@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.1.2";
+const String VERSION = "3.1.15";
 const String DATA_FORMAT = "3";
 
 /**
@@ -66,6 +66,7 @@ public class TransportDrone
     public double Distance = 0.0;
     public long Hangar = 0L;
     public String Homepath = String.Empty;
+    public bool HasCargoToDelivery = false;
 
     protected DateTime Mark = DateTime.Now;
 
@@ -175,32 +176,27 @@ public class TransportDrone
     {
         Vector3D offset = CalculateConnectorOffset();
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
-        double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
+        //double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
         if (Target.Equals(Vector3D.Zero)) {
             Distance = 0;
-            traveled = 0;
+            //traveled = 0;
         }
 
-        bool isStarting = traveled < Distance && Distance > 500.0;
-        bool withAvoidance = isStarting ? (traveled > 60.0) : (Distance > 60.0 || CurrentPath.HasToDock == false);
+        bool withAvoidance = Mode != "Direct" || (Mode == "Direct" && Distance > 60.0);
         RemoteControl.SetCollisionAvoidance(withAvoidance);
-        if(withAvoidance) {
-            Lights.TurnOn();
-        } else {
-            Lights.TurnOff(true);
-        }
 
         if (
-            (Distance > (Mode == "Direct" ? 0.05 : 15.0)) 
+            (Distance > (Mode == "Direct" ? 0.05 : 50.0)) 
             && RemoteControl.IsAutoPilotEnabled
         ) {
             // Flight mode "start" with max speed...others not.
-            double distance = isStarting && Mode != "Flight" ? traveled : Distance;
-            distance = (distance > 100.0 ? 100.0 : distance) / (isStarting ? 3.0 : 1.0);
-            float speedLimit = ((Mode == "Direct") ? 25f : 25f) / 100f * Convert.ToSingle(distance);
-            float minSpeed = (Mode == "Direct") ? 0.75f :  1f;
-            if (distance < 2.0) speedLimit = 1f;
+            double distanceToPercent = 100.0;
+            if(Mode == "Direct" || (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0))) {
+                distanceToPercent = Distance > 100.0 ? 100.0 : Distance;
+            }
+            float speedLimit = 20f / 100f * Convert.ToSingle(distanceToPercent);
+            float minSpeed = (Mode == "Direct") ? 1f :  3f;
             RemoteControl.SpeedLimit = speedLimit < minSpeed || Target.Equals(Vector3D.Zero) ? minSpeed : speedLimit;
             return;
         }
@@ -209,8 +205,8 @@ public class TransportDrone
 
         switch(Mode) {
             case "Direct":
-                if (Connector.Status == MyShipConnectorStatus.Connected) {
-                    Mark = DateTime.Now.AddSeconds(20);
+                if (HasCargoToDelivery && Connector.Status == MyShipConnectorStatus.Connected) {
+                    Mark = DateTime.Now.AddSeconds(3);
                     Mode = "WaitForUnload";
                     break;
                 }
@@ -226,15 +222,20 @@ public class TransportDrone
                 Dock();
                 break;
             case "Flight":
-                if (CurrentPath.HasToDock) {
-                    DirectFlight(CurrentPath.DockingAt);
+                if (CurrentPath.HasToDock && CurrentPath.Waypoints.Count <= 1) {
+                    FlightToPoint(false, CurrentPath.Waypoints[0]);
+                    Mode = "FlightToDock";
+                    HasCargoToDelivery = Connector.Status == MyShipConnectorStatus.Connected;
                     break;
                 }
-                if (FlightPaths.Count > 0) {
+                if (FlightPaths.Count > 0 || (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0))) {
                     FlightNextPath();
                     break;
                 }
                 Dock();
+                break;
+            case "FlightToDock":
+                DirectFlight(CurrentPath.DockingAt);
                 break;
             case "Init":
                 Dock();
@@ -257,7 +258,7 @@ public class TransportDrone
                     if (IsHomeConnected()) {
                         StartFlight();
                     } else {
-                        FlightNextPath();
+                        FlightNextPath(true);
                     }
                     break;
                 } 
@@ -307,7 +308,7 @@ public class TransportDrone
             Connector.Connect();
             Mark = DateTime.Now.AddSeconds(3);
         } else {
-            Mark = DateTime.Now.AddSeconds(15);
+            Mark = DateTime.Now.AddSeconds(7);
         }
     }
 
@@ -341,27 +342,40 @@ public class TransportDrone
         EnableCargoThrusters(true);
     }
 
-    protected void FlightNextPath() {
+    protected void FlightNextPath(bool isStart = false) {
         if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
             Connector.Disconnect();
         }
 
         CurrentPath = FlightPaths[0];
-        FlightPaths.RemoveAt(0);
+        MyWaypointInfo nextTarget = CurrentPath.Waypoints[0];
+        if (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0)) {
+            CurrentPath.Waypoints.RemoveAt(0);
+        }
+        if (CurrentPath.Waypoints.Count == (CurrentPath.HasToDock ? 1 : 0)) {
+            FlightPaths.RemoveAt(0);
+        }
+        FlightToPoint(isStart, nextTarget);
         Mode = "Flight";
-        
+    }
+
+    protected void FlightToPoint(bool isStart, MyWaypointInfo nextTarget) {
         StartPoint = RemoteControl.GetPosition();
-        Target = CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1].Coords;
+        Target = nextTarget.Coords;
         
         RemoteControl.FlightMode = FlightMode.OneWay;
-        RemoteControl.SpeedLimit = 1f;
-        RemoteControl.SetCollisionAvoidance(true);
-        RemoteControl.SetDockingMode(false);
+        if (isStart) {
+            RemoteControl.SpeedLimit = 1f;
+            RemoteControl.SetCollisionAvoidance(false);
+            RemoteControl.SetDockingMode(true);
+            Mark = DateTime.Now.AddSeconds(3); // flight 3 sec without acceleration
+        } else {
+            RemoteControl.SetCollisionAvoidance(false);
+            RemoteControl.SetDockingMode(true);
+        }
         RemoteControl.ClearWaypoints();
 
-        foreach(MyWaypointInfo waypoint in CurrentPath.Waypoints) {
-            AddWaypointWithConnectorOffset(waypoint);
-        }
+        AddWaypointWithConnectorOffset(nextTarget);
         
         RemoteControl.SetAutoPilotEnabled(true);
         EnableCargoThrusters(true);
@@ -383,7 +397,7 @@ public class TransportDrone
 
         Vector3D connectorOffset = RemoteControl.GetPosition() - connector.GetPosition();
         
-        return connectorOffset;
+        return connectorOffset * 1.30;
     }
 
     protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {
@@ -586,23 +600,23 @@ public void UpdateInfo()
 public void ReadArgument(String args) 
 {
     if (args == String.Empty) return;
-     
-    IMyTerminalBlock block;
+
     List<String> parts = new List<String>(args.Split(' ')); 
     String command = parts[0].Trim();
     parts.RemoveAt(0);
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
         case "SetRemoteControl":
-            block = GridTerminalSystem.GetBlockWithName(allArgs);
-            if ((block as IMyRemoteControl) == null) {
+            List<IMyRemoteControl> blocks = new List<IMyRemoteControl>();
+            GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(blocks, (IMyRemoteControl blockItem) => blockItem.CubeGrid.EntityId == Me.CubeGrid.EntityId && blockItem.CustomName == allArgs.Trim());
+            if (blocks.Count == 0) {
                 Echo("RemoteControl '" + allArgs + "' not found.");
                 break;
             }
             if (Drone != null) {
-                Drone.RemoteControl = block as IMyRemoteControl;
+                Drone.RemoteControl = blocks[0];
             } else {
-                Sys.Config("RemoteControl").Block = block;
+                Sys.Config("RemoteControl").Block = blocks[0];
                 InitProgram();
             }
             Echo("RemoteControl '" + allArgs + "' configured.");

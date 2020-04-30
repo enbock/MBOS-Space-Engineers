@@ -27,7 +27,7 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.1.1";
+const String VERSION = "1.1.6";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -38,7 +38,7 @@ float PullStrength = 0.003f;
 bool LastWasConsumerConnected = false;
 bool WaitForAway = false;
 int ActionCounter = 0;
-int MaxCounter = 3;
+int MaxCounter = 2;
 
 public Program()
 {
@@ -126,14 +126,14 @@ public void Main(string argument, UpdateType updateSource)
             SetBatteryMode(ChargeMode.Discharge);
         } 
         if (isPowerConnected && !LastWasConsumerConnected) {
-           modeDispaly = "<<<";
+            modeDispaly = "<<<";
             SetBatteryMode(ChargeMode.Recharge);
         } 
         /*if (isPowerInRange && charge <= MinCharge) {
             modeDispaly = "===";
         }*/
 
-        if (isLoaderConnected && !isPowerInRange) {
+        if (isLoaderConnected && !isPowerInRange && !isPowerConnected) {
             WaitForAway = false;
         }
         
@@ -154,31 +154,22 @@ public void Main(string argument, UpdateType updateSource)
             WaitForAway = true;
         }
         
-        if (isLoaderInRange && isPowerInRange && charge <= MinCharge && LastWasConsumerConnected) {
+        if (isLoaderInRange && isPowerInRange && charge <= MinCharge && LastWasConsumerConnected && WaitForAway) {
             modeDispaly = "-<=";
             Power.PullStrength = 0f;
-            
-            ActionCounter = 0;
-        } else if (isLoaderInRange && !isPowerConnected && WaitForAway) {
-            modeDispaly = "=<=";
-            Loader.PullStrength = 0f;
             Loader.PullStrength = 0f;
             Loader.Connect();
-
             ActionCounter = 0;
-        } else if (!isLoaderConnected  && !isLoaderInRange && isPowerInRange && !WaitForAway) {
+        } else if (!isLoaderConnected && isPowerInRange && !isPowerConnected && !WaitForAway) {
             modeDispaly = "+==";
             Loader.PullStrength = 0f;
-            Loader.PullStrength = 0f;
             Power.Connect();
-            
             ActionCounter = 0;
         } else if (isLoaderConnected && isPowerInRange && charge <= MinCharge && LastWasConsumerConnected && !WaitForAway) {
             modeDispaly = "+<=";
             Loader.PullStrength = 0f;
             Power.PullStrength = PullStrength / 10f;
             Loader.Disconnect();
-            
             ActionCounter = 0;
         } else if (isLoaderInRange && isPowerConnected && charge == 100f && !LastWasConsumerConnected) {
             modeDispaly = "+>=";
@@ -187,21 +178,18 @@ public void Main(string argument, UpdateType updateSource)
             SetBatteryMode(ChargeMode.Discharge);
             Power.Disconnect();
             WaitForAway = true;
-            
             ActionCounter = 0;
         } else if (isLoaderInRange && isPowerInRange && !LastWasConsumerConnected && charge > MinCharge && WaitForAway) {
             modeDispaly = "==+";
             Loader.PullStrength = 0f;
             Loader.PullStrength = 0f;
             Loader.Connect();
-            
             ActionCounter = 0;
         } else if (isLoaderInRange && !isPowerInRange && !isPowerConnected) {
             modeDispaly = "==*";
             Loader.PullStrength = 0f;
             Loader.PullStrength = 0f;
             Loader.Connect();
-            
             ActionCounter = 0;
         }
 

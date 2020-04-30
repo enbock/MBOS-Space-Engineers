@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "1.3.0";
+const String VERSION = "1.3.1";
 const String DATA_FORMAT = "2";
 
 /*
@@ -218,7 +218,7 @@ public class Manager
         Resources.ForEach(
             delegate(Resource resource) {
                 resource.RegisteredByManager = 0L;
-                SendUpdate(resource);
+                BroadCastResource(resource);
             }
         );
     }
