@@ -9,7 +9,7 @@ A typical factory has Consumer and Producer.
 See description of Rsource Manager.
 
 ## Single Unit Behavior
-Comman: `SingleUpdateStockWhen {Connected|Connectable|Unconnected}`
+Comman: `SingleUpdateStockWhen <BeforeState:{Connected|Connectable|Unconnected}> <NowState:{Connected|Connectable|Unconnected}>`
 The check of unit with type `Single` can be modified by this command. Its define the state when "produced" is happend.     
 * `Connected` - Produced is when the port connected is
 * `Connectable` - Produced when port is connectable. (eg. for `EmptyEnergyCells` or all movable and self disconnecting elements whcih need to be lifted)

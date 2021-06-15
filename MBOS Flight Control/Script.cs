@@ -1,5 +1,5 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.0.3";
+const String VERSION = "1.0.4";
 const String DATA_FORMAT = "1";
 
 /*
@@ -8,6 +8,8 @@ const String DATA_FORMAT = "1";
         RegisterFlightPath 91029766205012422 127797482999529571 GPS::48189.27:30623.5:22482.73:GPS::48111.23:30571.84:22719.95:GPS::48072.16:30542.42:22842.8:GPS::48050.44:30571:22889.77:GPS::48069.75:30455.18:23006.93:
         RegisterFlightPath 127797482999529571 108475315539771737 GPS::48068.42:30517.89:23051.31:GPS::47779:31247.37:22704.96:
         RegisterFlightPath 108475315539771737 127797482999529571 GPS::47755.46:31254.76:22744.02:GPS::47988.64:30528.99:23203.6:
+
+        RequestFlight|-8585778962141942972|transport|GPS:EmptyEnergyCell Connected:18213.223080337317:140078.30541871215:-105136.17496217653:|141800612156212441|GPS:EmptyEnergyCell Target:17998.674241177887:141498.49835116041:-105890.46044299923:|92440036194299365
 */
 
 public class FlightControl
@@ -373,6 +375,9 @@ public void ReadArgument(String args)
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
                 FlightController.ExecuteMessage(message);
             }
+            break;
+        case "Message":
+            FlightController.ExecuteMessage(allArgs);
             break;
         case "Reset":
             if(FlightController == null) break;

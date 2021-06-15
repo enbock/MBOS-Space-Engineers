@@ -11,7 +11,7 @@ Expected is / Setup:
 
 The stations:
 * Any connector, connected on the Power-Connector, with empty CustomData are Energy Consuming Stations.
-* Any connector, connected on the Power-Connector, with non empty CustomData are Energy Chargin Stations.
+* Any connector, connected on the Power-Connector, with non empty CustomData are Energy Charging Stations.
 * Any connector, connected on the Loader-Connector, are Transporters
 
 How it works:
@@ -27,7 +27,7 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.1.6";
+const String VERSION = "1.1.7";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -171,7 +171,7 @@ public void Main(string argument, UpdateType updateSource)
             Power.PullStrength = PullStrength / 10f;
             Loader.Disconnect();
             ActionCounter = 0;
-        } else if (isLoaderInRange && isPowerConnected && charge == 100f && !LastWasConsumerConnected) {
+        } else if (isLoaderInRange && isPowerConnected && charge >= 95f && !LastWasConsumerConnected) {
             modeDispaly = "+>=";
             Power.PullStrength = 0f;
             Loader.PullStrength = PullStrength;

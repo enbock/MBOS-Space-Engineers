@@ -6,4 +6,4 @@ Consumes resources, like `ChargedEnergyCell`, `IronIngot`, `SteelPlate`, `H2`, e
 A typical factory has Consumer and Producer.
 
 ## Radio Transmissions
-See description of Rsource Manager.
+See description of Resource Manager.
