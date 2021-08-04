@@ -15,17 +15,15 @@ The stations:
 
 Attantion: The cargo need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.0.0";
+const String VERSION = "1.0.1";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
 IMyShipConnector Loader;
 IMyShipConnector Cargo;
-float MinCharge = 10f;
 float PullStrength = 0.003f;
-int ActionCounter = 0;
-int MaxCounter = 2;
 string LastConnected = "";
+ChargeMode lastBatteryMode = ChargeMode.Recharge;
 
 public Program()
 {
@@ -78,57 +76,60 @@ String modeDispaly = "---";
 
 public void Main(string argument, UpdateType updateSource)
 {
-    ActionCounter++;
-
     bool isCargoConnected = Cargo.Status == MyShipConnectorStatus.Connected;
     bool isCargoInRange = Cargo.Status == MyShipConnectorStatus.Connectable;
     bool isLoaderConnected = Loader.Status == MyShipConnectorStatus.Connected;
     bool isLoaderInRange = Loader.Status == MyShipConnectorStatus.Connectable;
 
-    textSurface.WriteText(charge.ToString() + "\n", false);
+    textSurface.WriteText("1CU\n", false);
 
-    if (ActionCounter > MaxCounter) {
-        if (isLoaderConnected) {
-           modeDispaly = "=-O";
-        }
-        if (isCargoConnected) {
-            modeDispaly = "<=>";
-        }
-
-        if (isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
-            modeDispaly = "=>+";
-            Loader.PullStrength = 0f;
-            Cargo.PullStrength = PullStrength;
+    if (isCargoInRange || isLoaderInRange) {
+        if (lastBatteryMode == ChargeMode.Recharge) {
             SetBatteryMode(ChargeMode.Auto);
-            Loader.Disconnect();
-            ActionCounter = 0;
+            // need way some frames for battery switch
+            return;
         }
-        if (!isLoaderConnected && isLoaderInRange && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
-            modeDispaly = "==+";
-            Cargo.Connect();
-            ActionCounter = 0;
-        }
-        if(isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
-            modeDispaly = "+<=";
-            Loader.PullStrength = PullStrength;
-            Cargo.PullStrength = 0f;
-            SetBatteryMode(ChargeMode.Auto);
-            Cargo.Disconnect();
-            ActionCounter = 0;
-        }
-        if (!isCargoConnected && isCargoInRange && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
-            modeDispaly = "+==";
-            Loader.Connect();
-            ActionCounter = 0;
-        }
-
-        if (isLoaderConnected || isCargoConnected) {
-            SetBatteryMode(ChargeMode.Recharge);
-        } else {
-            SetBatteryMode(ChargeMode.Auto);
-        }
-        EnableThrusters(Loader.Status == MyShipConnectorStatus.Connected);
+    } else if (isLoaderConnected || isCargoConnected) {
+        SetBatteryMode(ChargeMode.Recharge);
+    } else {
+        SetBatteryMode(ChargeMode.Auto);
     }
+
+    if (isLoaderConnected) {
+        modeDispaly = "=-O";
+    }
+    if (isCargoConnected) {
+        modeDispaly = "<=>";
+    }
+
+    if (isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
+        modeDispaly = "=>+";
+        Loader.PullStrength = 0f;
+        Cargo.PullStrength = PullStrength;
+        SetBatteryMode(ChargeMode.Auto);
+        Loader.Disconnect();
+    }
+    if (!isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
+        modeDispaly = "==+";
+        Cargo.Connect();
+    }
+    if(isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
+        modeDispaly = "+<=";
+        Loader.PullStrength = PullStrength;
+        Cargo.PullStrength = 0f;
+        Cargo.Disconnect();
+    }
+    if (!isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
+        modeDispaly = "+==";
+        Loader.Connect();
+    }
+    if(LastConnected != "cargo" && LastConnected != "loader") { // init
+        SetBatteryMode(ChargeMode.Auto);
+        if(isCargoInRange) Cargo.Connect();
+        else if (isLoaderInRange) Loader.Connect();
+    }
+
+    EnableThrusters(Loader.Status == MyShipConnectorStatus.Connected);
 
     if(isCargoConnected && (!isLoaderInRange || LastConnected == "")) LastConnected = "cargo";
     if(isLoaderConnected && !isCargoInRange) LastConnected = "loader";
@@ -155,8 +156,10 @@ public void Main(string argument, UpdateType updateSource)
 
     if (LastConnected == "cargo") {
         textSurface.WriteText(">", true);
-    } else {
+    } else if (LastConnected == "loader") {
         textSurface.WriteText("<", true);
+    } else {
+        textSurface.WriteText("?", true);
     }
 
     Echo("Controller is running.");
@@ -166,5 +169,6 @@ public void SetBatteryMode(ChargeMode mode)
 {
     foreach (IMyBatteryBlock battery in Batteries) {
         battery.ChargeMode = mode;
+        lastBatteryMode = mode;
     }
 }

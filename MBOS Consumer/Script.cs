@@ -6,8 +6,8 @@ const String DATA_FORMAT = "1";
     Register examples:
         Register EmptyEnergyCell Single 1 Power Charger #1
         Register ChargedEnergyCell Battery 1 Charge Connector #1
-        Register Ore/Iron Container 1000 IronDeliverConnector#1
-        Register EmptyContainer Single 1 IronSupplyConnector#1
+        Register Ore/Iron Container 8000 IronOreDeliverConnector#1
+        Register EmptyContainer Single 1 IronOreSupplyConnector#1
 */
 
 public enum UnitType

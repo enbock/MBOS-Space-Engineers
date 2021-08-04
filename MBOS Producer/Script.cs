@@ -8,8 +8,8 @@ const String DATA_FORMAT = "2";
         Register EmptyEnergyCell Single 1 Charge Connector #1
         SingleUpdateStockWhen Connected Connectable
 
-        Register Ore/Iron Container 1000 IronSupplyConnector#1
-        Register EmptyContainer Single 1 IronDeliverConnector#1
+        Register Ore/Iron Container 8000 IronOreSupplyConnector#1
+        Register EmptyContainer Single 1 IronOreDeliverConnector#1
 */
 
 public enum UnitType
