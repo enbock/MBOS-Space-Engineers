@@ -1,5 +1,5 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.0.4";
+const String VERSION = "1.1.0";
 const String DATA_FORMAT = "1";
 
 /*
@@ -246,9 +246,9 @@ public class FlightControl
             );
             if (foundPaths.Count > 0) {
                 flightPath += foundPaths[0].WaypointsToString();
-            } else {
+            } /*else {
                 flightPath += FallBackFlightPathWaypoint.ToString();
-            }
+            }*/
         }
         flightPath += startStation.FlightIn.ToString() + ">" + startWaypoint.ToString() + "<" + startStation.FlightIn.ToString();
         
@@ -258,9 +258,9 @@ public class FlightControl
         );
         if (foundPaths.Count > 0) {
             flightPath += foundPaths[0].WaypointsToString();
-        } else {
+        } /*else {
             flightPath += FallBackFlightPathWaypoint.ToString();
-        }
+        }*/
         flightPath += targetStation.FlightIn.ToString() + ">" + targetWaypoint.ToString() + "<" + targetStation.FlightIn.ToString();
 
         if (targetStation.GridId != hangar.GridId) {
@@ -268,9 +268,9 @@ public class FlightControl
             foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == targetStation.GridId && path.TargetGridId == hangar.GridId);
             if (foundPaths.Count > 0) {
                 flightPath += foundPaths[0].WaypointsToString();
-            } else {
+            } /*else {
                 flightPath += FallBackFlightPathWaypoint.ToString();
-            }
+            }*/
             flightPath += hangar.FlightIn.ToString();
         }
 

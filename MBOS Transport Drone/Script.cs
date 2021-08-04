@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.1.15";
+const String VERSION = "3.1.16";
 const String DATA_FORMAT = "3";
 
 /**
@@ -306,9 +306,9 @@ public class TransportDrone
         RemoteControl.ClearWaypoints();
         if(IsOtherHome() && FlightPaths.Count == 0) {
             Connector.Connect();
-            Mark = DateTime.Now.AddSeconds(3);
+            Mark = DateTime.Now.AddSeconds(6);
         } else {
-            Mark = DateTime.Now.AddSeconds(7);
+            Mark = DateTime.Now.AddSeconds(10);
         }
     }
 

@@ -1,11 +1,15 @@
 const String NAME = "Producer";
-const String VERSION = "1.3.1";
+const String VERSION = "1.4.0";
 const String DATA_FORMAT = "2";
 
 /*
     Register examples:
         Register ChargedEnergyCell Battery 1 Power Charger #1
         Register EmptyEnergyCell Single 1 Charge Connector #1
+        SingleUpdateStockWhen Connected Connectable
+
+        Register Ore/Iron Container 1000 IronSupplyConnector#1
+        Register EmptyContainer Single 1 IronDeliverConnector#1
 */
 
 public enum UnitType
@@ -29,9 +33,6 @@ public class Manager
         public int Stock = 0;
         public long RegisteredByManager = 0;
         public int Reservation = 0;
-        public MyShipConnectorStatus SingleUnitStockWhenNow = MyShipConnectorStatus.Connected;
-        public MyShipConnectorStatus SingleUnitStockWhenBefore = MyShipConnectorStatus.Connected;
-        protected MyShipConnectorStatus ConnectorStatusBefore = MyShipConnectorStatus.Unconnected;
         
         public Resource(String unit, UnitType type, double volumePerUnit, IMyShipConnector connector, MyWaypointInfo waypoint) {
             Unit = unit;
@@ -81,23 +82,38 @@ public class Manager
         }
 
         protected void UpdateStock() {
+            float current = 0f;
+            float max = 0f;
+
+            List<IMyTerminalBlock> cargo = new List<IMyTerminalBlock>();
+            if (Connector.Status == MyShipConnectorStatus.Connected) {
+                MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
+                    cargo,
+                    (IMyTerminalBlock block) => block.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
+                );
+            }
+
             switch(Type) {
                 case UnitType.Single:
-                    if (Connector.Status != ConnectorStatusBefore) {
-                        Stock = Connector.IsWorking 
-                            && (ConnectorStatusBefore == SingleUnitStockWhenBefore || SingleUnitStockWhenBefore == SingleUnitStockWhenNow)  
-                            && Connector.Status == SingleUnitStockWhenNow 
-                        ? 1 : 0;
+                    if (cargo.Count > 0) {
+                        cargo.ForEach(delegate(IMyTerminalBlock block) {
+                            IMyCargoContainer container = block as IMyCargoContainer;
+                            IMyInventory inventory = container.GetInventory();
+                            current += (float) inventory.CurrentVolume;
+                        });
+                        Stock = current > 0 ? 0 : 1;
+                    } else {
+                        Stock = 0;
+                        if (Connector.IsWorking && Connector.Status == MyShipConnectorStatus.Connectable) {
+                            Stock = Connector.OtherConnector.CustomName.ToLower().IndexOf("empty") > -1 ? 1 : 0;
+                        }
                     }
-                    ConnectorStatusBefore = Connector.Status;
                     break;
                 case UnitType.Battery:
                     if (Connector.IsWorking == false || Connector.Status != MyShipConnectorStatus.Connected) {
                         Stock = 0;
                         break;
                     }
-                    float current = 0f;
-                    float max = 0f;
                     List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
 
                     MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
@@ -113,13 +129,20 @@ public class Manager
 
                     Stock = (100f / max * current) >= 100f ? 1 : 0;
                     break;
+                case UnitType.Container:
+                    cargo.ForEach(delegate(IMyTerminalBlock block) {
+                        IMyCargoContainer container = block as IMyCargoContainer;
+                        IMyInventory inventory = container.GetInventory();
+                        current += (float) inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + Unit));
+                    });
+
+                    Stock = (int) Math.Floor(current);
+                break;
             }
         }
     }
 
     public List<Resource> Resources = new List<Resource>();
-    public MyShipConnectorStatus SingleUnitStockWhenNow = MyShipConnectorStatus.Connected;
-    public MyShipConnectorStatus SingleUnitStockWhenBefore = MyShipConnectorStatus.Connected;
     protected MBOS System;
 
     public Manager(MBOS system) {
@@ -166,8 +189,6 @@ public class Manager
             newResource = new Resource(unit, type, volumePerUnit, connector, waypoint);
             Resources.Add(newResource);
         }
-        newResource.SingleUnitStockWhenBefore = SingleUnitStockWhenBefore;
-        newResource.SingleUnitStockWhenNow = SingleUnitStockWhenNow;
 
         BroadCastResource(newResource);
 
@@ -178,8 +199,6 @@ public class Manager
         List<String> list = new List<String>();
         Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
         System.Config("Resources").Value = String.Join("|", list.ToArray());
-        System.Config("SingleUnitStockWhen").Value = SingleUnitStockWhenNow.ToString();
-        System.Config("SingleUnitStockWhenBefore").Value = SingleUnitStockWhenBefore.ToString();
     }
 
     public void ExecuteMessage(String message) {
@@ -228,7 +247,7 @@ public class Manager
         Resources.ForEach(delegate(Resource resource) {
             UpgradeResourceWaypoint(resource);
 
-            if (resource.Stock < resource.Reservation) resource.Reservation = resource.Stock;
+            if(resource.Stock < resource.Reservation) resource.Reservation = resource.Stock;
             if(resource.StockHasChanged() == false && force == false) return;
 
             // Apply reservations
@@ -287,20 +306,10 @@ public class Manager
     }
 
     protected void Load() {
-        String singleStockWhenNow = System.Config("SingleUnitStockWhen").Value;
-        if (singleStockWhenNow != String.Empty) {
-            SingleUnitStockWhenNow = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhenNow);
-        }
-        String singleStockWhenBefore = System.Config("SingleUnitStockWhenBefore").Value;
-        if (singleStockWhenBefore != String.Empty) {
-            SingleUnitStockWhenBefore = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), singleStockWhenBefore);
-        }
         List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
                 Resource newResource = new Resource(System, line);
-                newResource.SingleUnitStockWhenNow = SingleUnitStockWhenNow;
-                newResource.SingleUnitStockWhenBefore = SingleUnitStockWhenBefore;
                 Resources.Add(newResource);
                 SendUpdate(newResource);
             }
@@ -429,16 +438,19 @@ public void UpdateInfo()
 {
     String stockResourceOutput = "Stock:\n";
     Dictionary<string, int> stockResources = new Dictionary<string, int>();
+    Dictionary<string, int> stockReservations = new Dictionary<string, int>();
     ProducerManager.Resources.ForEach(
         delegate(Manager.Resource resource) {
             if(stockResources.ContainsKey(resource.Unit) == false) {
                 stockResources.Add(resource.Unit, 0);
+                stockReservations.Add(resource.Unit, 0);
             }
-            stockResources[resource.Unit] += resource.Stock - resource.Reservation;
+            stockResources[resource.Unit] += resource.Stock;
+            stockReservations[resource.Unit] += resource.Reservation;
         }
     );
     foreach(KeyValuePair<string, int> pair in stockResources) {
-        stockResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "\n";
+        stockResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "(" + stockReservations[pair.Key].ToString() + ")\n";
     }
 
     String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 
@@ -469,12 +481,6 @@ public void ReadArgument(String args)
                 Echo("Registration failed.");
             }
             break;
-        case "SingleUpdateStockWhen":
-            ProducerManager.SingleUnitStockWhenBefore = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[0]);
-            ProducerManager.SingleUnitStockWhenNow = (MyShipConnectorStatus) Enum.Parse(typeof(MyShipConnectorStatus), parts[1]);
-            ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.SingleUnitStockWhenNow = ProducerManager.SingleUnitStockWhenNow);
-            Echo("Single Unit stock filled when case of change from " + ProducerManager.SingleUnitStockWhenBefore + " to " + ProducerManager.SingleUnitStockWhenNow);
-            break;
         case "ClearReservations":
             ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.Reservation = 0);
             ProducerManager.UpdateStock(true);
@@ -494,7 +500,6 @@ public void ReadArgument(String args)
             Echo(
                 "Available Commands: \n"
                 + " * Register <Resource Name> {Single|Conatiner|Liquid} <Volume> <Connector> [<GPS>]\n"
-                + " * SingleUpdateStockWhen <BeforeState:{Connected|Connectable|Unconnected}> <NowState:{Connected|Connectable|Unconnected}>\n"
             );
             break;
     }

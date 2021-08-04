@@ -27,7 +27,7 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.1.7";
+const String VERSION = "1.2.0";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -154,7 +154,7 @@ public void Main(string argument, UpdateType updateSource)
             WaitForAway = true;
         }
         
-        if (isLoaderInRange && isPowerInRange && charge <= MinCharge && LastWasConsumerConnected && WaitForAway) {
+        if (isLoaderInRange && isPowerInRange && charge <= 100f && LastWasConsumerConnected && WaitForAway) {
             modeDispaly = "-<=";
             Power.PullStrength = 0f;
             Loader.PullStrength = 0f;
@@ -191,6 +191,12 @@ public void Main(string argument, UpdateType updateSource)
             Loader.PullStrength = 0f;
             Loader.Connect();
             ActionCounter = 0;
+        }
+
+        if (charge <= MinCharge) {
+            Power.CustomName = "Connector: Power (empty)";
+        } else {
+            Power.CustomName = "Connector: Power (charged)";
         }
 
         EnableThrusters(Loader.Status == MyShipConnectorStatus.Connected);

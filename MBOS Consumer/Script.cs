@@ -1,11 +1,13 @@
 const String NAME = "Consumer";
-const String VERSION = "1.1.1";
+const String VERSION = "1.2.0";
 const String DATA_FORMAT = "1";
 
 /*
     Register examples:
         Register EmptyEnergyCell Single 1 Power Charger #1
         Register ChargedEnergyCell Battery 1 Charge Connector #1
+        Register Ore/Iron Container 1000 IronDeliverConnector#1
+        Register EmptyContainer Single 1 IronSupplyConnector#1
 */
 
 public enum UnitType
@@ -76,6 +78,23 @@ public class Manager
                 case UnitType.Single:
                 case UnitType.Battery:
                     Stock = (Connector.IsWorking == true && (Connector.Status == MyShipConnectorStatus.Connected || Connector.Status == MyShipConnectorStatus.Connectable)) ? 1 : 0;
+                    break;
+                case UnitType.Container:
+                    float current = 0f;
+                    List<IMyTerminalBlock> cargo = new List<IMyTerminalBlock>();
+
+                    MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
+                        cargo,
+                        (IMyTerminalBlock block) => block.CubeGrid.EntityId == MBOS.Sys.GridId
+                    );
+
+                    cargo.ForEach(delegate(IMyTerminalBlock block) {
+                        IMyCargoContainer container = block as IMyCargoContainer;
+                        IMyInventory inventory = container.GetInventory();
+                        current += (float)inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + Unit));
+                    });
+
+                    Stock = (int) Math.Floor(current);
                     break;
             }
         }

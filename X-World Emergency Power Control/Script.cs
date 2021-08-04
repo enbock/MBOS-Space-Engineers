@@ -1,5 +1,5 @@
 const String NAME = "EmergencyPowerManager";
-const String VERSION = "1.0.0";
+const String VERSION = "1.0.1";
 const String DATA_FORMAT = "1";
 
 public class EmergencyPowerManager
@@ -73,6 +73,7 @@ public void InitProgram()
     Echo("Program initialized.");
 }
 
+int counter = 0;
 public void Main(String argument, UpdateType updateSource)
 {
     ReadArgument(argument);
@@ -85,7 +86,9 @@ public void Main(String argument, UpdateType updateSource)
         return;
     }
 
-    EPM.Check();
+    if (counter == 0) EPM.Check();
+    counter++;
+    if(counter > 10) counter = 0;
 
     UpdateInfo();
 }
