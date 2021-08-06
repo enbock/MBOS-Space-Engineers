@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.2.4";
+const String VERSION = "1.3.0";
 const String DATA_FORMAT = "1";
 
 /*
@@ -8,6 +8,8 @@ const String DATA_FORMAT = "1";
         Register ChargedEnergyCell Battery 1 Charge Connector #1
         Register Ore/Iron Container 8000 IronOreDeliverConnector#1
         Register EmptyContainer Single 1 IronOreSupplyConnector#1
+
+        Limit Ore/Iron 4000 Ingot/Iron  <-- Do not request Iron Ore if more than 4000 Iron Ingot exisiting.
 */
 
 public enum UnitType
@@ -72,21 +74,20 @@ public class Manager
             ;
         }
 
-        public bool StockHasChanged() {
+        public bool StockHasChanged(List<Limit> limits) {
             int oldStock = Stock;
-            UpdateStock();
+            UpdateStock(limits);
 
             return oldStock != Stock;
         }
 
-        protected void UpdateStock() {
+        protected void UpdateStock(List<Limit> limits) {
             switch(Type) {
                 case UnitType.Single:
                 case UnitType.Battery:
                     Stock = isConnectorInUse ? 1 : 0;
                     break;
                 case UnitType.Container:
-                    float current = 0f;
                     List<IMyTerminalBlock> cargo = new List<IMyTerminalBlock>();
 
                     MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
@@ -94,19 +95,66 @@ public class Manager
                         (IMyTerminalBlock block) => block.CubeGrid.EntityId == MBOS.Sys.GridId
                     );
 
-                    cargo.ForEach(delegate(IMyTerminalBlock block) {
-                        IMyCargoContainer container = block as IMyCargoContainer;
-                        IMyInventory inventory = container.GetInventory();
-                        current += (float)inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + Unit));
-                    });
-
-                    Stock = isConnectorInUse || (int) Math.Floor(current) >= RequiredStock ? 1 : 0;
+                    Stock = (
+                        isConnectorInUse 
+                        || CargoAmount(Unit, cargo) >= RequiredStock 
+                        || IsLimitReached(Unit, cargo, limits) 
+                    ) ? 1 : 0;
                     break;
             }
+        }
+
+        protected bool IsLimitReached(String unit, List<IMyTerminalBlock> cargo, List<Limit> limits) {
+            List<Limit> foundLimits = limits.FindAll(
+                (Limit limit) => 
+                    limit.RequestedUnit == unit 
+                    && CargoAmount(limit.ExistingUnit, cargo) >= limit.MaximumAmount
+            );
+            return foundLimits.Count > 0;
+        }
+
+        protected int CargoAmount(String unit, List<IMyTerminalBlock> cargo) {
+            int current = 0;
+            
+            cargo.ForEach(delegate(IMyTerminalBlock block) {
+                IMyCargoContainer container = block as IMyCargoContainer;
+                IMyInventory inventory = container.GetInventory();
+                current += (int) Math.Floor((float)inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + unit)));
+            });
+
+            return current;
+        }
+    }
+
+    public class Limit {
+        public String RequestedUnit;
+        public int MaximumAmount;
+        public String ExistingUnit;
+
+        public Limit(String requestedUnit, int maximumAmount, String existingUnit) {
+            RequestedUnit = requestedUnit;
+            MaximumAmount = maximumAmount;
+            ExistingUnit = existingUnit;
+        }
+
+        public Limit(String data) {
+            List<String> parts = new List<String>(data.Split('*'));
+
+            RequestedUnit = parts[0];
+            MaximumAmount = int.Parse(parts[1]);
+            ExistingUnit = parts[2];
+        }
+        
+        public override String ToString() {
+            return RequestedUnit.ToString()
+                + "*" + MaximumAmount.ToString()
+                + "*" + ExistingUnit.ToString()
+            ;
         }
     }
 
     public List<Resource> Resources = new List<Resource>();
+    public List<Limit> Limits = new List<Limit>();
     protected MBOS System;
 
     public Manager(MBOS system) {
@@ -156,6 +204,10 @@ public class Manager
         List<String> list = new List<String>();
         Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
         System.Config("Resources").Value = String.Join("|", list.ToArray());
+        
+        list.Clear();
+        Limits.ForEach((Limit limit) => list.Add(limit.ToString()));
+        System.Config("Limits").Value = String.Join("|", list.ToArray());
     }
 
     public void ExecuteMessage(String message) {
@@ -186,7 +238,7 @@ public class Manager
         Resources.ForEach(delegate(Resource resource) {
             if(resource.RegisteredByManager == 0) return;
             int oldStock = resource.Stock;
-            if(resource.StockHasChanged() == false) return;
+            if(resource.StockHasChanged(Limits) == false) return;
 
             int deliveredStock = resource.Stock - oldStock;
             if(deliveredStock > 0) {
@@ -200,6 +252,20 @@ public class Manager
         });
     }
 
+    public void AddLimit(List<String> parts) {
+        String requestedUnit = parts[0];
+        int maxAmount = int.Parse(parts[1]);
+        String exisitingUnit = parts[2];
+
+        Limit newLimit = new Limit(requestedUnit, maxAmount, exisitingUnit);
+        Limit exisitingLimit = Limits.Find((Limit limit) => limit.RequestedUnit == requestedUnit && limit.ExistingUnit == exisitingUnit);
+        if (exisitingLimit == null) {
+            Limits.Add(newLimit);
+        } else {
+            exisitingLimit.MaximumAmount = maxAmount;
+        }
+    }
+
     protected void UpdateStock(Resource resource) {
         int neededQuantity = 1 - resource.Stock;
         MBOS.Sys.Transceiver.SendMessage(
@@ -209,7 +275,15 @@ public class Manager
     }
 
     protected void Load() {
-        List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
+        List<String> list = new List<String>(System.Config("Limits").Value.Split('|'));
+        list.ForEach(delegate(String line) {
+            if(line != String.Empty) {
+                Limit newLimit = new Limit(line);
+                Limits.Add(newLimit);
+            }
+        });
+
+        list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
                 Resource newResource = new Resource(System, line);
@@ -328,6 +402,10 @@ public void ReadArgument(String args)
         case "Reset":
             ConsumerManager.Resources.Clear();
             break;
+        case "Limit":
+            ConsumerManager.AddLimit(parts);
+            Echo("Limit registered or updated.");
+            break;
         case "ReceiveMessage":
             Echo("Received radio data.");
             String message = string.Empty;
@@ -342,7 +420,8 @@ public void ReadArgument(String args)
             Echo(
                 "Available Commands: \n"
                 + " * Register <Resource Name> {Single|Conatiner|Liquid} <Required Amount> <Connector> [<GPS>]\n"
-                + " * SingleUpdateStockWhen {Connected|Connectable|Unconnected}"
+                + " * Limit <Requested Resource> <Max Amount> <Resource in Container>\n"
+                + " * Reset"
             );
             break;
     }
