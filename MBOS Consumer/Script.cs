@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.2.0";
+const String VERSION = "1.2.4";
 const String DATA_FORMAT = "1";
 
 /*
@@ -29,6 +29,12 @@ public class Manager
         public MyWaypointInfo Waypoint = MyWaypointInfo.Empty;
         public int Stock = 0;
         public long RegisteredByManager = 0;
+
+        public bool isConnectorInUse { 
+            get { 
+                return (Connector.IsWorking == true && (Connector.Status == MyShipConnectorStatus.Connected || Connector.Status == MyShipConnectorStatus.Connectable));
+            }
+        }
         
         public Resource(String unit, UnitType type, int requiredStock, IMyShipConnector connector) {
             Unit = unit;
@@ -77,7 +83,7 @@ public class Manager
             switch(Type) {
                 case UnitType.Single:
                 case UnitType.Battery:
-                    Stock = (Connector.IsWorking == true && (Connector.Status == MyShipConnectorStatus.Connected || Connector.Status == MyShipConnectorStatus.Connectable)) ? 1 : 0;
+                    Stock = isConnectorInUse ? 1 : 0;
                     break;
                 case UnitType.Container:
                     float current = 0f;
@@ -94,7 +100,7 @@ public class Manager
                         current += (float)inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + Unit));
                     });
 
-                    Stock = (int) Math.Floor(current);
+                    Stock = isConnectorInUse || (int) Math.Floor(current) >= RequiredStock ? 1 : 0;
                     break;
             }
         }
@@ -195,13 +201,11 @@ public class Manager
     }
 
     protected void UpdateStock(Resource resource) {
-        int neededQuantity = resource.RequiredStock - resource.Stock;
-        //if (neededQuantity > 0) {
-            MBOS.Sys.Transceiver.SendMessage(
-                resource.RegisteredByManager,
-                "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
-            );
-        //}
+        int neededQuantity = 1 - resource.Stock;
+        MBOS.Sys.Transceiver.SendMessage(
+            resource.RegisteredByManager,
+            "RequestResource|" + resource.Unit + "|" + neededQuantity.ToString() + "|" + resource.Waypoint.ToString()
+        );
     }
 
     protected void Load() {
@@ -286,7 +290,7 @@ public void UpdateInfo()
             if(neededResources.ContainsKey(resource.Unit) == false) {
                 neededResources.Add(resource.Unit, 0);
             }
-            neededResources[resource.Unit] += resource.RequiredStock - resource.Stock;
+            neededResources[resource.Unit] += 1 - resource.Stock;
         }
     );
     foreach(KeyValuePair<string, int> pair in neededResources) {
@@ -297,7 +301,7 @@ public void UpdateInfo()
         + "\n"
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
-        + "Registered Resources: " + ConsumerManager.Resources.Count.ToString() + "\n"
+        + "Registered Resource Units: " + ConsumerManager.Resources.Count.ToString() + "\n"
         + neededResourceOutput
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()

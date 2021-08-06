@@ -15,7 +15,7 @@ The stations:
 
 Attantion: The cargo need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.0.1";
+const String VERSION = "1.0.2";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();

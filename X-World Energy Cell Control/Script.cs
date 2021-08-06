@@ -27,7 +27,7 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.2.0";
+const String VERSION = "1.2.1";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();

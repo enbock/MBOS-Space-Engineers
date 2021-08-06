@@ -1,13 +1,11 @@
 const String NAME = "Producer";
-const String VERSION = "1.4.0";
+const String VERSION = "1.5.0";
 const String DATA_FORMAT = "2";
 
 /*
     Register examples:
         Register ChargedEnergyCell Battery 1 Power Charger #1
         Register EmptyEnergyCell Single 1 Charge Connector #1
-        SingleUpdateStockWhen Connected Connectable
-
         Register Ore/Iron Container 8000 IronOreSupplyConnector#1
         Register EmptyContainer Single 1 IronOreDeliverConnector#1
 */
@@ -81,6 +79,55 @@ public class Manager
             return oldStock != Stock;
         }
 
+        public void LoadCargoToContainer() {
+            if(Type != UnitType.Container || Connector.Status != MyShipConnectorStatus.Connected) return;
+            
+            List<IMyTerminalBlock> stationCargo = new List<IMyTerminalBlock>();
+            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
+                stationCargo,
+                (IMyTerminalBlock block) => block.CubeGrid.EntityId ==  MBOS.Sys.GridId
+            );
+
+            List<IMyTerminalBlock> containerCargo = new List<IMyTerminalBlock>();
+            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
+                containerCargo,
+                (IMyTerminalBlock block) => block.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
+            );
+
+            int neededQuantity = (int) Math.Floor(VolumePerUnit);
+            MyItemType requestedItem = MyDefinitionId.Parse("MyObjectBuilder_" + Unit);
+            
+            containerCargo.ForEach(delegate(IMyTerminalBlock block) {
+                IMyCargoContainer container = block as IMyCargoContainer;
+                IMyInventory inventory = container.GetInventory();
+                neededQuantity -= (int) Math.Floor((float) inventory.GetItemAmount(requestedItem));
+            });
+
+            if(neededQuantity <= 0) return;
+            
+            stationCargo.ForEach(delegate(IMyTerminalBlock block) {
+                if(neededQuantity <= 0) return;
+                IMyCargoContainer container = block as IMyCargoContainer;
+                IMyInventory inventory = container.GetInventory();
+                int hasQuantity = (int) Math.Floor((float) inventory.GetItemAmount(requestedItem));
+                if(hasQuantity > neededQuantity) hasQuantity = neededQuantity;
+                MyInventoryItem? item = inventory.FindItem(requestedItem);
+                if (item != null) {
+                    int itemAmount = (int) ((MyInventoryItem) item).Amount;
+                    if (itemAmount > hasQuantity) itemAmount = hasQuantity;
+                    containerCargo.ForEach(delegate(IMyTerminalBlock targetBlock) {
+                        IMyCargoContainer targetContainer = targetBlock as IMyCargoContainer;
+                        IMyInventory targetInventory = targetContainer.GetInventory();
+                        if (inventory.TransferItemTo(targetInventory, (MyInventoryItem) item, itemAmount)) {
+                            hasQuantity -= itemAmount;
+                        }
+                    });
+                }
+            });
+
+            return;
+        }
+
         protected void UpdateStock() {
             float current = 0f;
             float max = 0f;
@@ -136,7 +183,7 @@ public class Manager
                         current += (float) inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + Unit));
                     });
 
-                    Stock = (int) Math.Floor(current);
+                    Stock = (int) Math.Floor(current) >= (int) Math.Floor(VolumePerUnit) ? 1 : 0;
                 break;
             }
         }
@@ -233,15 +280,6 @@ public class Manager
         }
     }
 
-    protected void ReRegisterProducer() {
-        Resources.ForEach(
-            delegate(Resource resource) {
-                resource.RegisteredByManager = 0L;
-                BroadCastResource(resource);
-            }
-        );
-    }
-
     public void UpdateStock(bool force = false)
     {
         Resources.ForEach(delegate(Resource resource) {
@@ -264,11 +302,24 @@ public class Manager
         });
     }
 
+    public void LoadCargoToContainer() {
+        Resources.ForEach(delegate(Resource resource) {
+            resource.LoadCargoToContainer();
+        });
+    }
+
+    protected void ReRegisterProducer() {
+        Resources.ForEach(
+            delegate(Resource resource) {
+                resource.RegisteredByManager = 0L;
+                BroadCastResource(resource);
+            }
+        );
+    }
+
     protected bool UpgradeResourceWaypoint(Resource resource) {
         if (
             resource.Connector.Status == MyShipConnectorStatus.Connected 
-            //Other only visible in connected state|| resource.Connector.Status == MyShipConnectorStatus.Connectable)
-            //&& resource.Waypoint.Equals(resource.ConnectedWaypoint)
         ) {
             List<IMyShipConnector> otherFreeConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
@@ -284,7 +335,7 @@ public class Manager
             }
             MyWaypointInfo newWaypoint = new MyWaypointInfo(
                 resource.Unit + " Connected", 
-                otherFreeConnectors[0].GetPosition() //CubeGrid.GridIntegerToWorld(otherFreeConnectors[0].Position)
+                otherFreeConnectors[0].GetPosition()
             );
             if (newWaypoint.Equals(resource.ConnectedWaypoint) == false) {
                 if (resource.RegisteredByManager != 0L) {
@@ -296,12 +347,6 @@ public class Manager
                 return true;
             }
         }
-        /*if (
-            (resource.Connector.Status != MyShipConnectorStatus.Connected && resource.Connector.Status != MyShipConnectorStatus.Connectable)
-            && resource.Waypoint.Equals(resource.ConnectedWaypoint) == false
-        ) {
-            resource.ConnectedWaypoint = resource.Waypoint;
-        }*/
         return false;
     }
 
@@ -415,7 +460,7 @@ public void InitProgram()
 
     ProducerManager = new Manager(Sys);
 
-    Runtime.UpdateFrequency = UpdateFrequency.Update100; //UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
@@ -428,6 +473,7 @@ public void Main(String argument, UpdateType updateSource)
         InitProgram();
     }
 
+    ProducerManager.LoadCargoToContainer();
     ProducerManager.UpdateStock();
     Save();
     UpdateInfo();
