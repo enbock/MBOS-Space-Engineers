@@ -15,7 +15,7 @@ The stations:
 
 Attantion: The cargo need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.0.2";
+const String VERSION = "1.1.2";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
@@ -73,9 +73,26 @@ public void EnableThrusters(bool enabled)
 }
 
 String modeDispaly = "---";
+DateTime Mark = DateTime.Now;
+bool disableLoader = false;
 
 public void Main(string argument, UpdateType updateSource)
 {
+    if (Mark >= DateTime.Now) return;
+
+    if (disableLoader == true) {
+        Mark = DateTime.Now.AddSeconds(90);
+        disableLoader = false;
+        Loader.Enabled = false;
+        return;
+    }
+    if (Loader.Enabled == false) {
+        Loader.Enabled = true;
+        Mark = DateTime.Now.AddSeconds(1);
+        return;
+    }
+    
+
     bool isCargoConnected = Cargo.Status == MyShipConnectorStatus.Connected;
     bool isCargoInRange = Cargo.Status == MyShipConnectorStatus.Connectable;
     bool isLoaderConnected = Loader.Status == MyShipConnectorStatus.Connected;
@@ -112,6 +129,7 @@ public void Main(string argument, UpdateType updateSource)
     if (!isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
         modeDispaly = "==+";
         Cargo.Connect();
+        disableLoader = true;
     }
     if(isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
         modeDispaly = "+<=";
