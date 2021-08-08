@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.1.17";
+const String VERSION = "3.1.18";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -208,7 +208,7 @@ public class TransportDrone
         
         if (Mark >= DateTime.Now) return;
 
-        if(Mode == "Direct" || Mode == "Flight") {
+        if((Mode == "Direct" || Mode == "Flight") && Connector.Status != MyShipConnectorStatus.Connected) {
             if (Math.Abs(LastDistance - Distance) < 0.1) {
                 NoFlightDetectCount++;
             } else {

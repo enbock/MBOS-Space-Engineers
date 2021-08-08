@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.5.4";
+const String VERSION = "1.5.5";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -404,9 +404,20 @@ public class ResourceManager {
             }
 
             if (FindProducerAndCreateMission(consumer)) {
+                Consumers.Remove(consumer);
+                Consumers.Add(consumer);
                 return; // only one mission per itteration. Otherwise we got duplicated ids and a drone chaos ;)
             }
         }
+    }
+
+    public void CorrectRuntimeData() {
+        Producers.ForEach(delegate (Producer producer) {
+            if(producer.Stock == 0 && producer.Reserved != 0) {
+                producer.Reserved = 0; // Fix wrong reservation count, when delivery not counted [Effect of reload/restart game]
+                MBOS.Sys.Traffic.Add("Correct deliver count for " + producer.Unit);
+            }
+        });
     }
 
     protected bool FindProducerAndCreateMission(Consumer consumer) {
@@ -568,6 +579,7 @@ public void Main(String argument, UpdateType updateSource)
     }
 
     Manager.SearchRequestingConsumerForMissions();
+    Manager.CorrectRuntimeData();
     Save();
     UpdateInfo();
 
