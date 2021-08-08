@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.5.3";
+const String VERSION = "1.5.4";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -483,6 +483,10 @@ public class ResourceManager {
             return;
         } 
         foundConsumer[0].Delivered += quantity;
+        if (foundConsumer[0].Delivered > foundConsumer[0].Requested) {
+            MBOS.Sys.Traffic.Add("ERROR: To much delivering detected. Correcting it.");
+            foundConsumer[0].Delivered = foundConsumer[0].Requested;
+        }
     }
 
     protected void MissionCompleted(long missionId) {

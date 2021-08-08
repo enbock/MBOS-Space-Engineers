@@ -1,6 +1,7 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.1.16";
+const String VERSION = "3.1.17";
 const String DATA_FORMAT = "3";
+const String TRANSPORT_TYPE = "transport";
 
 /**
 DEMO radio data:
@@ -172,9 +173,13 @@ public class TransportDrone
         Mode = "Mark";
     }
 
+    double LastDistance = 0f;
+    int NoFlightDetectCount = 0;
+
     protected void CheckFlight()
     {
         Vector3D offset = CalculateConnectorOffset();
+        LastDistance = Distance;
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
         //double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
@@ -202,6 +207,19 @@ public class TransportDrone
         }
         
         if (Mark >= DateTime.Now) return;
+
+        if(Mode == "Direct" || Mode == "Flight") {
+            if (Math.Abs(LastDistance - Distance) < 0.1) {
+                NoFlightDetectCount++;
+            } else {
+                NoFlightDetectCount = 0;
+            }
+
+            if (NoFlightDetectCount > 5) {
+                Mode = "SkipCurrentFlightPart"; // Default branch in switch
+                NoFlightDetectCount = 0;
+            }
+        }
 
         switch(Mode) {
             case "Direct":
@@ -411,7 +429,7 @@ public class TransportDrone
 
     protected void RequestHangar(long receiver)
     {
-        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString() + "|transport");
+        Sys.Transceiver.SendMessage(receiver, "DroneNeedHome|" + Sys.EntityId.ToString() + "|" + TRANSPORT_TYPE);
     }
 
     protected void RegisterHangar(String hangar, String homepath)
@@ -518,7 +536,7 @@ public void InitProgram()
     }
     
     if (hangar == 0L) {
-        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString() + "|transport");
+        Sys.BroadCastTransceiver.SendMessage("DroneNeedHome|" + Sys.EntityId.ToString() + "|" + TRANSPORT_TYPE);
     } else if(Drone.Mode == "None" || Drone.Mode == "Init") {
         Drone.GoHome();
     }
