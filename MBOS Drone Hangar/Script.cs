@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "1.5.2";
+const String VERSION = "2.0.0";
 const String DATA_FORMAT = "2";
 
 /**
@@ -43,12 +43,12 @@ public class DroneHangar : Station
 {
     public class Pod 
     {
-        public IMyShipConnector Connector;
+        public IMyShipMergeBlock Connector;
         public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
         public long Drone = 0L;
         public string Type = "none";
 
-        public Pod(IMyShipConnector connector) {
+        public Pod(IMyShipMergeBlock connector) {
             Connector = connector;
 
             LoadConfig();
@@ -168,15 +168,15 @@ public class DroneHangar : Station
     }
 
     protected void FindPods() {
-        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
-        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+        List<IMyShipMergeBlock> connectors = new List<IMyShipMergeBlock>();
+        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
             connectors, 
-            (IMyShipConnector connector) => connector.CubeGrid.EntityId == MBOS.Sys.GridId && connector.CustomName.ToLower().IndexOf("pod") > -1
+            (IMyShipMergeBlock connector) => connector.CustomName.ToLower().IndexOf("pod") > -1
         );
 
-        MBOS.Sys.Echo("Found "+connectors.Count.ToString()+" connectors");
+        MBOS.Sys.Echo("Found "+connectors.Count.ToString()+" pods");
 
-        foreach(IMyShipConnector connector in connectors) {
+        foreach(IMyShipMergeBlock connector in connectors) {
             List<Pod> pods = Pods.FindAll((Pod podItem) => podItem.Connector.EntityId == connector.EntityId);
             if (pods.Count > 0) continue;
             Pods.Add(new Pod(connector));
@@ -248,8 +248,7 @@ public class DroneHangar : Station
         runningMissions.ForEach(
             delegate(DeliveryMission mission) {
                 if(
-                    mission.Pod.Connector.Status != MyShipConnectorStatus.Connected 
-                    && mission.Pod.Connector.Status != MyShipConnectorStatus.Connectable
+                    !mission.Pod.Connector.IsConnected
                     && (lostPod == "" || mission.Pod.Connector.CustomName != lostPod)
                 ) return;
 
@@ -265,7 +264,7 @@ public class DroneHangar : Station
         
         startingMissions.ForEach(
             delegate(DeliveryMission mission) {
-                if (mission.Pod.Connector.Status == MyShipConnectorStatus.Connected || mission.Pod.Connector.Status == MyShipConnectorStatus.Connectable) return;
+                if (mission.Pod.Connector.IsConnected) return;
                 mission.Started = true;
             }
         );
@@ -287,7 +286,7 @@ public class DroneHangar : Station
                         List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
                         
                         IMyProgrammableBlock block = MBOS.Sys.GridTerminalSystem.GetBlockWithId(podItem.Drone) as IMyProgrammableBlock;
-                        if (block == null || podItem.Connector.Status != MyShipConnectorStatus.Connected) {
+                        if (block == null || !mission.Pod.Connector.IsConnected) {
                             return false;
                         }
 
@@ -296,7 +295,7 @@ public class DroneHangar : Station
                         float max = 0f;
                         MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
                             batteries,
-                            (IMyTerminalBlock batteryblock) => batteryblock.CubeGrid.EntityId == podItem.Connector.OtherConnector.CubeGrid.EntityId
+                            (IMyTerminalBlock batteryblock) => batteryblock.CubeGrid.EntityId == podItem.Connector.CubeGrid.EntityId
                         );
                         batteries.ForEach(delegate(IMyTerminalBlock batteryblock) {
                             IMyBatteryBlock battery = batteryblock as IMyBatteryBlock;
@@ -444,6 +443,8 @@ public void ReadArgument(String args)
             break;
         case "Reset":
             Hangar.Missions.Clear();
+            Hangar.Pods.ForEach((DroneHangar.Pod podItem) => podItem.Connector.CustomData = "");
+            Hangar.Pods.Clear();
             Hangar.Init();
             break;
         case "FindPods":

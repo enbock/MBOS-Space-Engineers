@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "3.1.18";
+const String VERSION = "4.0.0";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -58,7 +58,7 @@ public class TransportDrone
     public MBOS Sys;
     public Batteries Batteries;
     public Lights Lights;
-    public IMyShipConnector Connector;
+    public IMyShipMergeBlock Connector;
     public List<FlightPath> FlightPaths { get; } = new List<FlightPath>();
     public String Mode = "Init";
     public Vector3D Target = Vector3D.Zero;
@@ -70,13 +70,14 @@ public class TransportDrone
     public bool HasCargoToDelivery = false;
 
     protected DateTime Mark = DateTime.Now;
+    protected DateTime EnableConnectorAt = DateTime.Now;
 
     public TransportDrone(
         IMyRemoteControl remoteControl, 
         MBOS sys,
         Batteries batteries, 
         Lights lights,
-        IMyShipConnector connector,
+        IMyShipMergeBlock connector,
         long hangar,
         string homepath
     )
@@ -151,19 +152,29 @@ public class TransportDrone
     }
 
     public bool IsHomeConnected() {
-        if (Connector.Status != MyShipConnectorStatus.Connected) {
+        if (!Connector.IsConnected) {
             return false;
         }
 
-        return Connector.OtherConnector.CustomData.Contains(Sys.EntityId.ToString());
+        List<IMyShipMergeBlock> connectors = new List<IMyShipMergeBlock>();
+        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
+            connectors, 
+            (IMyShipMergeBlock connector) => connector.CustomData.Contains(Sys.EntityId.ToString()) && Connector.CubeGrid.EntityId == connector.CubeGrid.EntityId
+        );
+        return connectors.Count > 0;
     }
 
-    public bool IsOtherHome() {
-        if (Connector.Status != MyShipConnectorStatus.Connectable) {
+    public bool IsCargoConnected() {
+        if (!Connector.IsConnected) {
             return false;
         }
 
-        return Distance < 5.0 && Connector.OtherConnector.CustomData.Contains(Sys.EntityId.ToString());
+        List<IMyShipMergeBlock> connectors = new List<IMyShipMergeBlock>();
+        MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
+            connectors, 
+            (IMyShipMergeBlock connector) => Connector.CubeGrid.EntityId == connector.CubeGrid.EntityId && connector.IsConnected && connector.CustomData.Trim() == "Loader"
+        );
+        return connectors.Count > 0;
     }
 
     protected void Start() 
@@ -207,8 +218,9 @@ public class TransportDrone
         }
         
         if (Mark >= DateTime.Now) return;
+        if (EnableConnectorAt < DateTime.Now) Connector.Enabled = true;
 
-        if((Mode == "Direct" || Mode == "Flight") && Connector.Status != MyShipConnectorStatus.Connected) {
+        if((Mode == "Direct" || Mode == "Flight") && !Connector.IsConnected) {
             if (Math.Abs(LastDistance - Distance) < 0.1) {
                 NoFlightDetectCount++;
             } else {
@@ -223,7 +235,7 @@ public class TransportDrone
 
         switch(Mode) {
             case "Direct":
-                if (HasCargoToDelivery && Connector.Status == MyShipConnectorStatus.Connected) {
+                if (HasCargoToDelivery && Connector.IsConnected) {
                     Mark = DateTime.Now.AddSeconds(3);
                     Mode = "WaitForUnload";
                     break;
@@ -231,7 +243,7 @@ public class TransportDrone
                 Dock();
                 break;
             case "WaitForUnload":
-                if (Connector.Status == MyShipConnectorStatus.Connected) {
+                if (Connector.IsConnected) {
                     // Ok, unload failed. Back to last point and dock again.
                     DirectFlight(CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1]);
                     Mode = "Flight"; 
@@ -243,7 +255,7 @@ public class TransportDrone
                 if (CurrentPath.HasToDock && CurrentPath.Waypoints.Count <= 1) {
                     FlightToPoint(false, CurrentPath.Waypoints[0]);
                     Mode = "FlightToDock";
-                    HasCargoToDelivery = Connector.Status == MyShipConnectorStatus.Connected;
+                    HasCargoToDelivery = Connector.IsConnected;
                     break;
                 }
                 if (FlightPaths.Count > 0 || (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0))) {
@@ -268,6 +280,7 @@ public class TransportDrone
                 if (IsHomeConnected()) {
                     Batteries.SetReacharge();
                     Lights.TurnOff();
+                    SetupThrusters(false);
                 }
                 break;
             case "Start":
@@ -298,8 +311,9 @@ public class TransportDrone
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
-            Connector.Disconnect();
+        SetupThrusters(true);
+        if (Connector.IsConnected && !IsCargoConnected()) {
+            Disconnect();
         }
 
         RemoteControl.FlightMode = FlightMode.OneWay;
@@ -310,7 +324,6 @@ public class TransportDrone
         AddWaypointWithConnectorOffset(waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
-        EnableCargoThrusters(true);
     }
 
     public void Dock() 
@@ -322,12 +335,16 @@ public class TransportDrone
         RemoteControl.SetCollisionAvoidance(true);
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
-        if(IsOtherHome() && FlightPaths.Count == 0) {
-            Connector.Connect();
+        if(IsHomeConnected() && FlightPaths.Count == 0) {
             Mark = DateTime.Now.AddSeconds(6);
         } else {
             Mark = DateTime.Now.AddSeconds(10);
         }
+    }
+
+    public void Disconnect() {
+        Connector.Enabled = false;
+        EnableConnectorAt = DateTime.Now.AddSeconds(5);
     }
 
     protected void StartFlight() 
@@ -345,8 +362,8 @@ public class TransportDrone
         
         Batteries.SetAuto();
         Lights.TurnOn();
-        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
-            Connector.Disconnect();
+        if (Connector.IsConnected && !IsCargoConnected()) {
+            Disconnect();
         }
 
         RemoteControl.FlightMode = FlightMode.OneWay;
@@ -357,13 +374,14 @@ public class TransportDrone
         AddWaypointWithConnectorOffset(waypoint);
 
         RemoteControl.SetAutoPilotEnabled(true);
-        EnableCargoThrusters(true);
+        EnableCargoThrusters();
     }
 
     protected void FlightNextPath(bool isStart = false) {
-        if (Connector.Status == MyShipConnectorStatus.Connected && Connector.OtherConnector.CubeGrid.IsStatic) {
-            Connector.Disconnect();
+        if (Connector.IsConnected && !IsCargoConnected()) {
+            Disconnect();
         }
+        SetupThrusters(true);
 
         CurrentPath = FlightPaths[0];
         MyWaypointInfo nextTarget = CurrentPath.Waypoints[0];
@@ -396,26 +414,22 @@ public class TransportDrone
         AddWaypointWithConnectorOffset(nextTarget);
         
         RemoteControl.SetAutoPilotEnabled(true);
-        EnableCargoThrusters(true);
+        EnableCargoThrusters();
     }
 
     public Vector3D CalculateConnectorOffset() {
-        IMyShipConnector connector = Connector;
-        if(IsHomeConnected() == false && Connector.Status == MyShipConnectorStatus.Connected) {
+        if(IsHomeConnected() == false && Connector.IsConnected) {
             List<IMyShipConnector> otherConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
                 otherConnectors, 
-                (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
-                    && connectorItem.EntityId != Connector.OtherConnector.EntityId
+                (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == Connector.CubeGrid.EntityId
             );
             if(otherConnectors.Count > 0) {
-                connector = otherConnectors[0];
+                 return RemoteControl.GetPosition() - otherConnectors[0].GetPosition();
             }
         }
-
-        Vector3D connectorOffset = RemoteControl.GetPosition() - connector.GetPosition();
         
-        return connectorOffset * 1.30;
+        return RemoteControl.GetPosition() - Connector.GetPosition();
     }
 
     protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {
@@ -438,18 +452,22 @@ public class TransportDrone
         Homepath = homepath;
     }
 
-    protected void EnableCargoThrusters(bool enabled)
+    protected void EnableCargoThrusters()
     {
-        if (Connector.Status != MyShipConnectorStatus.Connected) return;
+        if (!Connector.IsConnected) return;
 
-        List<IMyThrust> otherThrusters = new List<IMyThrust>();
+        SetupThrusters(true);
+    }
+
+    protected void SetupThrusters(bool enabled)
+    {
+        List<IMyThrust> thrusters = new List<IMyThrust>();
         MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyThrust>(
-            otherThrusters, 
-            (IMyThrust thruster) => thruster.CubeGrid.EntityId == Connector.OtherConnector.CubeGrid.EntityId
-                && thruster.CubeGrid.EntityId != Connector.OtherConnector.CubeGrid.EntityId
+            thrusters, 
+            (IMyThrust thruster) => thruster.CubeGrid.EntityId == Connector.CubeGrid.EntityId
         );
 
-        otherThrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);
+        thrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);
     }
 }
 
@@ -467,8 +485,6 @@ public Program()
 public void Save()
 {
     if(Drone != null) {
-        Sys.Config("RemoteControl").Block = Drone.RemoteControl;
-        //Sys.Config("Channel").Value = Drone.Transceiver.Channel;
         Sys.Config("Mode").Value = Drone.Mode;
 
         List<String> pathConfig = new List<String>();
@@ -488,19 +504,29 @@ public void InitProgram()
 {
     Sys.LoadConfig();
 
-    IMyRemoteControl remoteControl = Sys.Config("RemoteControl").Block as IMyRemoteControl;
-    IMyShipConnector cargoConnector = FindConnector();
+    IMyRemoteControl remoteControl = null;
+    IMyShipMergeBlock cargoConnector = FindConnector();
     
+    List<IMyRemoteControl> blocks = new List<IMyRemoteControl>();
+    GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(
+        blocks, 
+        (IMyRemoteControl blockItem) => blockItem.CubeGrid.EntityId == Me.CubeGrid.EntityId && blockItem.CustomData.Trim() == "DroneControl"
+    );
+    if (blocks.Count > 0) {
+        Echo("DroneControl found.");
+        remoteControl= blocks[0];
+    }
+
     Save(); // create default data
 
     bool missingConditions = false;
     if(remoteControl == null) {
         missingConditions = true;
-        Echo("Remote Controll missing. Run `SetRemoteControl <name>`");
+        Echo("Can not find remote control with custom data 'DroneControl' in this grid.");
     }
     if(cargoConnector == null) {
         missingConditions = true;
-        Echo("Can not find connector with custom data 'Cargo' in this grid.");
+        Echo("Can not find merge block with custom data 'Cargo' in this grid.");
     }
     if(missingConditions) {
         Sys.ComputerDisplay.WriteText("\n\n\nMissing configuration.", false);
@@ -571,12 +597,12 @@ public void Main(String argument, UpdateType updateSource)
     }
 }
 
-public IMyShipConnector FindConnector() 
+public IMyShipMergeBlock FindConnector() 
 {
-    List<IMyShipConnector> connectors = new List<IMyShipConnector>();
-    GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+    List<IMyShipMergeBlock> connectors = new List<IMyShipMergeBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
         connectors, 
-        (IMyShipConnector connector) => connector.CubeGrid.EntityId == Sys.GridId && connector.CustomData.Trim() == "Cargo"
+        (IMyShipMergeBlock connector) => connector.CubeGrid.EntityId == Sys.GridId && connector.CustomData.Trim() == "Cargo"
     );
 
     if (connectors.Count > 0) {
@@ -601,7 +627,7 @@ public void UpdateInfo()
         + "\n"
         + "RemoteControl: " + Drone.RemoteControl.CustomName + "\n"
         + "Connector: " + (Drone.Connector != null ? Drone.Connector.CustomName : "not found") + "\n"
-        + "Connector connected: " + (Drone.Connector != null && Drone.Connector.Status == MyShipConnectorStatus.Connected ? "Yes" : "No") + "\n"
+        + "Connector connected: " + (Drone.Connector != null && Drone.Connector.IsConnected ? "Yes" : "No") + "\n"
         + "Home: " + Drone.Hangar.ToString() + "\n"
         + "Home connected: " + (Drone.Connector != null && Drone.IsHomeConnected() ? "Yes" : "No") + "\n"
         + "Mode: " + Drone.Mode + "\n"
@@ -624,21 +650,6 @@ public void ReadArgument(String args)
     parts.RemoveAt(0);
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
-        case "SetRemoteControl":
-            List<IMyRemoteControl> blocks = new List<IMyRemoteControl>();
-            GridTerminalSystem.GetBlocksOfType<IMyRemoteControl>(blocks, (IMyRemoteControl blockItem) => blockItem.CubeGrid.EntityId == Me.CubeGrid.EntityId && blockItem.CustomName == allArgs.Trim());
-            if (blocks.Count == 0) {
-                Echo("RemoteControl '" + allArgs + "' not found.");
-                break;
-            }
-            if (Drone != null) {
-                Drone.RemoteControl = blocks[0];
-            } else {
-                Sys.Config("RemoteControl").Block = blocks[0];
-                InitProgram();
-            }
-            Echo("RemoteControl '" + allArgs + "' configured.");
-            break;
         case "NewHome":
             Drone.Hangar = 0L;
             Save();
@@ -652,8 +663,12 @@ public void ReadArgument(String args)
             Echo("Received radio data.");
             Drone.Run();
             break;
+        case "Disconnect":
+            Drone.Disconnect();
+            Echo("Disconnected.");
+            break;
         default:
-            Echo("Available Commands: SetRemoteControl <Control>, SetControlConnectorDistanceInBigBlock <relativeDistance>");
+            Echo("Available Commands: NowHome, AddPath and Disconnect");
             break;
     }
 }
