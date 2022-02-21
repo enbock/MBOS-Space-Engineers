@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "1.5.0";
+const String VERSION = "2.0.0";
 const String DATA_FORMAT = "2";
 
 /*
@@ -276,6 +276,7 @@ public class Manager
                 break;
             case "ResetOrders":
                 Resources.ForEach((Resource resource) => resource.Reservation = 0);
+                ReRegisterProducer();
                 break;
         }
     }
@@ -321,11 +322,12 @@ public class Manager
         if (
             resource.Connector.Status == MyShipConnectorStatus.Connected 
         ) {
-            List<IMyShipConnector> otherFreeConnectors = new List<IMyShipConnector>();
-            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+            List<IMyShipMergeBlock> otherFreeConnectors = new List<IMyShipMergeBlock>();
+            MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
                 otherFreeConnectors, 
-                (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
-                        && connectorItem.Status != MyShipConnectorStatus.Connected && connectorItem.Status != MyShipConnectorStatus.Connectable
+                (IMyShipMergeBlock connectorItem) => 
+                    connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
+                    && connectorItem.IsConnected == false
             );
             if (resource.RegisteredByManager != 0L && resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
                 TransmitResourceRemoval(resource);
@@ -546,6 +548,7 @@ public void ReadArgument(String args)
             Echo(
                 "Available Commands: \n"
                 + " * Register <Resource Name> {Single|Conatiner|Liquid} <Volume> <Connector> [<GPS>]\n"
+                + " * ClearReservations"
             );
             break;
     }

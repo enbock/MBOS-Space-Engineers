@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.5.5";
+const String VERSION = "1.6.0";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -274,6 +274,16 @@ public class ResourceManager {
                 + "; Received: " + pair.Value.Delivered.ToString() 
                 + "; Missions: " + pair.Value.Missions.ToString() 
                 + ")\n";
+
+            if (pair.Value.InDelivery == 0 && pair.Value.Missions == 0 && pair.Value.Delivered != 0) {
+                Consumers.ForEach(
+                    delegate(Consumer consumer) {
+                        if (consumer.Unit != pair.Key) return;
+                        consumer.Delivered = 0;
+                        MBOS.Sys.Traffic.Add("Correct delivered count for consumer " + pair.Key +"("+consumer.EntityId+")");
+                    }
+                );
+            }
         }
 
         Screen.WriteText(output, false);
@@ -391,11 +401,16 @@ public class ResourceManager {
         foundConsumers[0].Requested = quantity;
     }
 
+    protected Dictionary<String,long> LastStationByUnit = new Dictionary<String,long>();
+
     public void SearchRequestingConsumerForMissions() {
         List<Consumer> requestingConsumers = Consumers.FindAll((Consumer consumerItem) => (consumerItem.Requested - consumerItem.Delivered) > 0);
 
          for(int index = 0; index < requestingConsumers.Count; index ++) {
             Consumer consumer = requestingConsumers[index];
+            
+            if (LastStationByUnit.ContainsKey(consumer.Unit) && consumer.GridId == LastStationByUnit[consumer.Unit]) continue; //Search for next station/unit
+
             List<DeliverMission> foundMissions = Missions.FindAll(
                 (DeliverMission mission) => mission.Unit == consumer.Unit && mission.ConsumerWaypoint.Coords.Equals(consumer.Waypoint.Coords, 0.01)
             );
@@ -404,18 +419,25 @@ public class ResourceManager {
             }
 
             if (FindProducerAndCreateMission(consumer)) {
+                if(!LastStationByUnit.ContainsKey(consumer.Unit)) {
+                    LastStationByUnit.Add(consumer.Unit, 0L);
+                }
+                LastStationByUnit[consumer.Unit] = consumer.GridId;
                 Consumers.Remove(consumer);
                 Consumers.Add(consumer);
                 return; // only one mission per itteration. Otherwise we got duplicated ids and a drone chaos ;)
             }
         }
+
+        
+        LastStationByUnit = new Dictionary<String,long>(); // reset if all stations got missions
     }
 
     public void CorrectRuntimeData() {
         Producers.ForEach(delegate (Producer producer) {
             if(producer.Stock == 0 && producer.Reserved != 0) {
                 producer.Reserved = 0; // Fix wrong reservation count, when delivery not counted [Effect of reload/restart game]
-                MBOS.Sys.Traffic.Add("Correct deliver count for " + producer.Unit);
+                MBOS.Sys.Traffic.Add("Correct deliver count for producer" + producer.Unit);
             }
         });
     }
@@ -637,8 +659,12 @@ public void ReadArgument(String args)
             Sys.Config("Missions").Value = String.Empty;
             Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
+        case "ClearMissions":
+            Manager.Missions.Clear();
+            Echo("Missions cleared.");
+            break;
         default:
-            Echo("Available Commands: \n  * SetLCD <Name of Panel>");
+            Echo("Available Commands: \n  * SetLCD <Name of Panel>\n  * ClearMissions");
             break;
     }
 }

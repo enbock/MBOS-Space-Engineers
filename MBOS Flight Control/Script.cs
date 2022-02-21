@@ -1,5 +1,5 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.1.0";
+const String VERSION = "1.1.1";
 const String DATA_FORMAT = "1";
 
 /*
@@ -375,6 +375,7 @@ public void ReadArgument(String args)
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
                 FlightController.ExecuteMessage(message);
             }
+            if (allArgs != string.Empty) FlightController.ExecuteMessage(allArgs);
             break;
         case "Message":
             FlightController.ExecuteMessage(allArgs);

@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.3.0";
+const String VERSION = "1.4.0";
 const String DATA_FORMAT = "1";
 
 /*
@@ -173,9 +173,7 @@ public class Manager
 
         IMyShipConnector connector = System.GetBlockByName(name) as IMyShipConnector;
         if (connector == null) {
-            if (connector == null) {
-                return false;
-            }
+            return false;
         }
         Vector3D dockAt = connector.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
@@ -257,12 +255,12 @@ public class Manager
         int maxAmount = int.Parse(parts[1]);
         String exisitingUnit = parts[2];
 
-        Limit newLimit = new Limit(requestedUnit, maxAmount, exisitingUnit);
-        Limit exisitingLimit = Limits.Find((Limit limit) => limit.RequestedUnit == requestedUnit && limit.ExistingUnit == exisitingUnit);
-        if (exisitingLimit == null) {
+        Limit existingLimit = Limits.Find((Limit limit) => limit.RequestedUnit == requestedUnit && limit.ExistingUnit == exisitingUnit);
+        if (existingLimit == null) {
+            Limit newLimit = new Limit(requestedUnit, maxAmount, exisitingUnit);
             Limits.Add(newLimit);
         } else {
-            exisitingLimit.MaximumAmount = maxAmount;
+            existingLimit.MaximumAmount = maxAmount;
         }
     }
 
@@ -368,7 +366,10 @@ public void UpdateInfo()
         }
     );
     foreach(KeyValuePair<string, int> pair in neededResources) {
-        neededResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "\n";
+        string limitOutput = "";
+        Manager.Limit existingLimit = ConsumerManager.Limits.Find((Manager.Limit limit) => limit.RequestedUnit == pair.Key);
+        if (existingLimit != null) limitOutput = "(Limited by: " + existingLimit.MaximumAmount.ToString() + " " + existingLimit.ExistingUnit + ")";
+        neededResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + " " + limitOutput + "\n";
     }
 
     String output = "[MBOS] [" + System.DateTime.Now.ToLongTimeString() + "]\n" 

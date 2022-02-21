@@ -3,7 +3,7 @@ The X-World Cargo Controller.
 
 This controlling script is made of a "Cargo Unit".
 Expected is / Setup:
-* One Connector with CustomData: 'Loader' (with 0.3% magnetic streng)
+* One Merge Block with CustomData: 'Loader'
 * One Connector with CustomData: 'Cargo' (with default or up to 0.3% magnetic streng)
 * Medium Cargo Container
 * One Programmable Block for this script
@@ -13,13 +13,12 @@ Expected is / Setup:
 The stations:
 * Stations has to fill or empty the cargo.
 
-Attantion: The cargo need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "1.1.2";
+const String VERSION = "2.0.0";
 
 IMyTextSurface textSurface;
 List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
-IMyShipConnector Loader;
+IMyShipMergeBlock Loader;
 IMyShipConnector Cargo;
 float PullStrength = 0.003f;
 string LastConnected = "";
@@ -27,7 +26,6 @@ ChargeMode lastBatteryMode = ChargeMode.Recharge;
 
 public Program()
 {
-
     List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
     GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
 
@@ -36,14 +34,21 @@ public Program()
         Batteries.Add(battery);
     }
 
-    List<IMyShipConnector> Connectors = new List<IMyShipConnector>();
-    GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(Connectors);
+    List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+    GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+        connectors,
+        (IMyShipConnector connector) => connector.CubeGrid == Me.CubeGrid && connector.CustomData == "Cargo"
+    );
+    if (connectors.Count > 0) Cargo = connectors[0];
+    else Echo("'Cargo' connector not found.");
 
-    foreach (IMyShipConnector connector in Connectors) {
-        if (connector.CubeGrid != Me.CubeGrid) continue;
-        if (connector.CustomData == "Loader") Loader = connector;
-        if (connector.CustomData == "Cargo") Cargo = connector;
-    }
+    List<IMyShipMergeBlock> mergeBlocks = new List<IMyShipMergeBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyShipMergeBlock>(
+        mergeBlocks,
+        (IMyShipMergeBlock mergeBlock) => mergeBlock.CubeGrid == Me.CubeGrid && mergeBlock.CustomData == "Loader"
+    );
+    if (mergeBlocks.Count > 0) Loader = mergeBlocks[0];
+    else Echo("'Loader' merge block not found.");
 
     textSurface = Me.GetSurface(0);
 
@@ -57,6 +62,8 @@ public Program()
         textSurface.WriteText("*****", false);
 
         Runtime.UpdateFrequency = UpdateFrequency.Update100;
+    } else {
+        Echo("Program start failed.");
     }
 }
 
@@ -72,35 +79,31 @@ public void EnableThrusters(bool enabled)
     thrusters.ForEach((IMyThrust thruster) => thruster.Enabled = enabled);
 }
 
-String modeDispaly = "---";
+String modeDisplay = "---";
 DateTime Mark = DateTime.Now;
-bool disableLoader = false;
+DateTime LoadEnableAt = DateTime.Now;
+DateTime DisableThrustersAt = DateTime.Now;
+
+public void DisconnectLoader()
+{
+    LoadEnableAt = DateTime.Now.AddSeconds(10);
+    DisableThrustersAt = DateTime.Now.AddSeconds(8);
+    Loader.Enabled = false;
+}
 
 public void Main(string argument, UpdateType updateSource)
 {
     if (Mark >= DateTime.Now) return;
-
-    if (disableLoader == true) {
-        Mark = DateTime.Now.AddSeconds(90);
-        disableLoader = false;
-        Loader.Enabled = false;
-        return;
-    }
-    if (Loader.Enabled == false) {
-        Loader.Enabled = true;
-        Mark = DateTime.Now.AddSeconds(1);
-        return;
-    }
-    
+    if (LoadEnableAt < DateTime.Now && Loader.Enabled == false) Loader.Enabled = true;
+    if (DisableThrustersAt < DateTime.Now && !Loader.IsConnected) EnableThrusters(false);
 
     bool isCargoConnected = Cargo.Status == MyShipConnectorStatus.Connected;
     bool isCargoInRange = Cargo.Status == MyShipConnectorStatus.Connectable;
-    bool isLoaderConnected = Loader.Status == MyShipConnectorStatus.Connected;
-    bool isLoaderInRange = Loader.Status == MyShipConnectorStatus.Connectable;
+    bool isLoaderConnected = Loader.IsConnected;
 
     textSurface.WriteText("1CU\n", false);
 
-    if (isCargoInRange || isLoaderInRange) {
+    if (isCargoInRange || isLoaderConnected) {
         if (lastBatteryMode == ChargeMode.Recharge) {
             SetBatteryMode(ChargeMode.Auto);
             // need way some frames for battery switch
@@ -113,51 +116,45 @@ public void Main(string argument, UpdateType updateSource)
     }
 
     if (isLoaderConnected) {
-        modeDispaly = "=-O";
+        modeDisplay = "=-O";
     }
     if (isCargoConnected) {
-        modeDispaly = "<=>";
+        modeDisplay = "<=>";
     }
 
     if (isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
-        modeDispaly = "=>+";
-        Loader.PullStrength = 0f;
+        modeDisplay = "=>+";
         Cargo.PullStrength = PullStrength;
         SetBatteryMode(ChargeMode.Auto);
-        Loader.Disconnect();
+        DisconnectLoader();
     }
     if (!isLoaderConnected && isCargoInRange && !isCargoConnected && LastConnected == "loader") {
-        modeDispaly = "==+";
+        modeDisplay = "==+";
         Cargo.Connect();
-        disableLoader = true;
+        DisconnectLoader();
     }
-    if(isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
-        modeDispaly = "+<=";
-        Loader.PullStrength = PullStrength;
+    if(isCargoConnected && isLoaderConnected && LastConnected == "cargo") {
+        modeDisplay = "+<=";
         Cargo.PullStrength = 0f;
         Cargo.Disconnect();
     }
-    if (!isCargoConnected && isLoaderInRange && !isLoaderConnected && LastConnected == "cargo") {
-        modeDispaly = "+==";
-        Loader.Connect();
+    if (!isCargoConnected && !isLoaderConnected && LastConnected == "cargo") {
+        modeDisplay = "+==";
     }
     if(LastConnected != "cargo" && LastConnected != "loader") { // init
         SetBatteryMode(ChargeMode.Auto);
         if(isCargoInRange) Cargo.Connect();
-        else if (isLoaderInRange) Loader.Connect();
     }
 
-    EnableThrusters(Loader.Status == MyShipConnectorStatus.Connected);
+    if(isCargoConnected && (!isLoaderConnected || LastConnected == "")) LastConnected = "cargo";
+    if(isLoaderConnected && !isCargoInRange && !isCargoConnected) LastConnected = "loader";
 
-    if(isCargoConnected && (!isLoaderInRange || LastConnected == "")) LastConnected = "cargo";
-    if(isLoaderConnected && !isCargoInRange) LastConnected = "loader";
-
-    textSurface.WriteText(modeDispaly + "\n", true);
+    textSurface.WriteText(modeDisplay + "\n", true);
 
     if (isLoaderConnected) {
         textSurface.WriteText("*", true);
-    } else if (isLoaderInRange) {
-        textSurface.WriteText("+", true);
+    //} else if (isLoaderInRange) {
+    //    textSurface.WriteText("+", true);
     } else {
         textSurface.WriteText("-", true);
     }

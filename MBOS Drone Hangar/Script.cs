@@ -179,6 +179,7 @@ public class DroneHangar : Station
         foreach(IMyShipMergeBlock connector in connectors) {
             List<Pod> pods = Pods.FindAll((Pod podItem) => podItem.Connector.EntityId == connector.EntityId);
             if (pods.Count > 0) continue;
+            MBOS.Sys.Echo("Register Pod "+connector.CustomName);
             Pods.Add(new Pod(connector));
         }
     }
@@ -227,10 +228,12 @@ public class DroneHangar : Station
         
         List<DeliveryMission> foundMissions = Missions.FindAll((DeliveryMission missionItem) => missionItem.MissionId == missionId);
         if(foundMissions.Count > 0) {
-            MBOS.Sys.Echo("Mission already registered: " + missionId);
+            MBOS.Sys.Traffic.Add("Mission already registered: " + missionId);
+        } else {
+            MBOS.Sys.Traffic.Add("Register new mission: " + missionId);
+            DeliveryMission newMission = new DeliveryMission(missionId, droneType, flightPath);
+            Missions.Add(newMission);
         }
-        DeliveryMission newMission = new DeliveryMission(missionId, droneType, flightPath);
-        Missions.Add(newMission);
 
         CheckMissions();
     }
@@ -282,15 +285,14 @@ public class DroneHangar : Station
                 List<Pod> freePods = Pods.FindAll(
                     delegate(Pod podItem) {
                         if (LastStart > DateTime.Now) return false;
-                        
-                        List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
-                        
+
                         IMyProgrammableBlock block = MBOS.Sys.GridTerminalSystem.GetBlockWithId(podItem.Drone) as IMyProgrammableBlock;
-                        if (block == null || !mission.Pod.Connector.IsConnected) {
+                        if (block == null || !podItem.Connector.IsConnected) {
                             return false;
                         }
 
                         // batteries charged?
+                        List<IMyTerminalBlock> batteries = new List<IMyTerminalBlock>();
                         float current = 0f;
                         float max = 0f;
                         MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(
@@ -411,7 +413,9 @@ public void UpdateInfo()
 
 public void ReadArgument(String args) 
 {
-    if (args == String.Empty) return;
+    if (args == String.Empty) {
+        return;
+    }
      
     List<String> parts = new List<String>(args.Split(' ')); 
     String command = parts[0].Trim();
@@ -429,14 +433,15 @@ public void ReadArgument(String args)
             }
             break;
         case "ReceiveMessage":
-            Echo("Received radio data.");
+            Sys.Traffic.Add("Received radio data.");
             String message = string.Empty;
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                Hangar.ExecuteMessage(message);
-            }
             while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
                 Hangar.ExecuteMessage(message);
             }
+            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+                Hangar.ExecuteMessage(message);
+            }
+            if(allArgs != string.Empty) Hangar.ExecuteMessage(allArgs);
             break;
         case "ClearMissions": 
             Hangar.Missions.Clear();
@@ -458,11 +463,24 @@ public void ReadArgument(String args)
             }
             Hangar.CheckHomeCommingMissions(allArgs);
             Hangar.Pods.Remove(lostPods[0]);
+            lostPods[0].Connector.CustomData = "";
             Echo("Pod " + allArgs + " removed from system.");
+            Hangar.Init();
             break;
-            
+        case "RestartMissions":
+            Hangar.Missions.ForEach(
+                delegate (DroneHangar.DeliveryMission mission) {
+                    if (mission.Pod.Connector.IsConnected) {
+                        Echo("Drone seems to fly: "+mission.Pod.Connector.CustomName);
+                    }
+                    Echo("Restart drone: "+mission.Pod.Connector.CustomName+"("+mission.Drone+")");
+                    MBOS.Sys.Transceiver.SendMessage(mission.Drone, "AddFlightPath|" + mission.FlightPath);
+                    MBOS.Sys.Transceiver.SendMessage(mission.Drone, "StartDrone");
+                }
+            );
+            break;
         default:
-            Echo("Available Commands:\n   * FlightIn <GPS>\n   * FindPods <GPS>\n   * PodLost <Exact name of pod>\n");
+            Echo("Available Commands:\n   * FlightIn <GPS>\n   * FindPods\n   * PodLost <Exact name of pod>\n   * RestartMission\n");
             break;
     }
 }
@@ -510,6 +528,7 @@ public class MBOS {
     public Action<string> Echo;
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
+    public List<String> Traffic = new List<String>();
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -518,7 +537,6 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
-    protected List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;

@@ -62,15 +62,21 @@ public class TransportDrone
     public List<FlightPath> FlightPaths { get; } = new List<FlightPath>();
     public String Mode = "Init";
     public Vector3D Target = Vector3D.Zero;
+    public string TargetInfo = string.Empty;
     public Vector3D StartPoint = Vector3D.Zero;
     public FlightPath CurrentPath = new FlightPath();
     public double Distance = 0.0;
     public long Hangar = 0L;
     public String Homepath = String.Empty;
-    public bool HasCargoToDelivery = false;
+    public bool HasToDeliverCargo = false;
 
     protected DateTime Mark = DateTime.Now;
     protected DateTime EnableConnectorAt = DateTime.Now;
+
+    protected double LastDistance = 0f;
+    public int NoFlightDetectCount = 0;
+    protected bool LastRunWasConnected = false;
+    protected int countMissingCargo = 0;
 
     public TransportDrone(
         IMyRemoteControl remoteControl, 
@@ -79,7 +85,8 @@ public class TransportDrone
         Lights lights,
         IMyShipMergeBlock connector,
         long hangar,
-        string homepath
+        string homepath,
+        bool hasToDeliverCargo
     )
     {
         RemoteControl = remoteControl;
@@ -90,6 +97,8 @@ public class TransportDrone
         Sys = sys;
         Hangar = hangar;
         Homepath = homepath;
+        LastRunWasConnected = Connector.IsConnected;
+        HasToDeliverCargo = hasToDeliverCargo;
     }
 
     public void Run() 
@@ -184,9 +193,6 @@ public class TransportDrone
         Mode = "Mark";
     }
 
-    double LastDistance = 0f;
-    int NoFlightDetectCount = 0;
-
     protected void CheckFlight()
     {
         Vector3D offset = CalculateConnectorOffset();
@@ -199,14 +205,28 @@ public class TransportDrone
             //traveled = 0;
         }
 
+        if(!Connector.IsConnected) SetupThrusters(true);
+
         bool withAvoidance = Mode != "Direct" || (Mode == "Direct" && Distance > 60.0);
         RemoteControl.SetCollisionAvoidance(withAvoidance);
+        bool isTargetReached = ((Distance > (Mode == "Direct" ? 0.05 : 50.0)) && RemoteControl.IsAutoPilotEnabled) == false;
 
-        if (
-            (Distance > (Mode == "Direct" ? 0.05 : 50.0)) 
-            && RemoteControl.IsAutoPilotEnabled
-        ) {
-            // Flight mode "start" with max speed...others not.
+        if (!Connector.IsConnected && LastRunWasConnected && !HasToDeliverCargo) {
+            MBOS.Sys.Traffic.Add("[CF]: Finish flight by disconnect cargo.");
+            Mode = "Direct";
+            isTargetReached = true;
+            Disconnect(); // Turn connector off for a while
+            countMissingCargo = 0;
+        }
+        if (Connector.IsConnected && !LastRunWasConnected && IsCargoConnected()) {
+            MBOS.Sys.Traffic.Add("[CF]: Finish flight by connect cargo.");
+            Mode = "Direct";
+            isTargetReached = true;
+            countMissingCargo = 0;
+        }
+        LastRunWasConnected = Connector.IsConnected;
+
+        if (!isTargetReached) {
             double distanceToPercent = 100.0;
             if(Mode == "Direct" || (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0))) {
                 distanceToPercent = Distance > 100.0 ? 100.0 : Distance;
@@ -220,6 +240,7 @@ public class TransportDrone
         if (Mark >= DateTime.Now) return;
         if (EnableConnectorAt < DateTime.Now) Connector.Enabled = true;
 
+        /*
         if((Mode == "Direct" || Mode == "Flight") && !Connector.IsConnected) {
             if (Math.Abs(LastDistance - Distance) < 0.1) {
                 NoFlightDetectCount++;
@@ -228,26 +249,20 @@ public class TransportDrone
             }
 
             if (NoFlightDetectCount > 5) {
-                Mode = "SkipCurrentFlightPart"; // Default branch in switch
+                Mode = "Mark";
                 NoFlightDetectCount = 0;
             }
-        }
+            
+        } else NoFlightDetectCount = 0;
+        */
+
+
+        MBOS.Sys.Traffic.Add("[CF]: Next Mode:" + Mode +"(HDC:"+(HasToDeliverCargo?"Y":"N")+" C:"+(Connector.IsConnected?"Y":"N")+")");
 
         switch(Mode) {
-            case "Direct":
-                if (HasCargoToDelivery && Connector.IsConnected) {
+            case "Direct": // Finish direct flight
+                if (HasToDeliverCargo && Connector.IsConnected) {
                     Mark = DateTime.Now.AddSeconds(3);
-                    Mode = "WaitForUnload";
-                    break;
-                }
-                Dock();
-                break;
-            case "WaitForUnload":
-                if (Connector.IsConnected) {
-                    // Ok, unload failed. Back to last point and dock again.
-                    DirectFlight(CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1]);
-                    Mode = "Flight"; 
-                    break;
                 }
                 Dock();
                 break;
@@ -255,7 +270,6 @@ public class TransportDrone
                 if (CurrentPath.HasToDock && CurrentPath.Waypoints.Count <= 1) {
                     FlightToPoint(false, CurrentPath.Waypoints[0]);
                     Mode = "FlightToDock";
-                    HasCargoToDelivery = Connector.IsConnected;
                     break;
                 }
                 if (FlightPaths.Count > 0 || (CurrentPath.Waypoints.Count > (CurrentPath.HasToDock ? 1 : 0))) {
@@ -281,6 +295,30 @@ public class TransportDrone
                     Batteries.SetReacharge();
                     Lights.TurnOff();
                     SetupThrusters(false);
+                    HasToDeliverCargo = false;
+                } else {
+                    if (!HasToDeliverCargo) {
+                        if(Connector.IsConnected) {
+                            MBOS.Sys.Traffic.Add("[CF]: Disconnect unexpected cargo.");
+                            Disconnect();
+                        }
+                    } else if (HasToDeliverCargo) {
+                        if(!Connector.IsConnected) {
+                            countMissingCargo++;
+                            if (countMissingCargo > 3) {
+                                countMissingCargo = 0;
+                                MBOS.Sys.Traffic.Add("[CF]: Cargo is missing...abort mission");
+                                FlightPaths.Clear();
+                                GoHome();
+                                break;
+                            }
+                            MBOS.Sys.Traffic.Add("[CF]: Cargo is missing...try again");
+                            DirectFlight(CurrentPath.Waypoints[CurrentPath.Waypoints.Count - 1]);
+                            Mode = "Flight"; 
+                            break;
+                        }
+                        HasToDeliverCargo = false; // Next stop unload
+                    }
                 }
                 break;
             case "Start":
@@ -288,6 +326,8 @@ public class TransportDrone
                 if (FlightPaths.Count > 0) {
                     if (IsHomeConnected()) {
                         StartFlight();
+                        HasToDeliverCargo = true;
+                        LastRunWasConnected = false;
                     } else {
                         FlightNextPath(true);
                     }
@@ -301,6 +341,7 @@ public class TransportDrone
                 }
                 break;
         }
+
     }
 
     protected void StartingFlight(MyWaypointInfo waypoint)
@@ -336,15 +377,15 @@ public class TransportDrone
         RemoteControl.SetDockingMode(true);
         RemoteControl.ClearWaypoints();
         if(IsHomeConnected() && FlightPaths.Count == 0) {
-            Mark = DateTime.Now.AddSeconds(6);
+            Mark = DateTime.Now.AddSeconds(2);
         } else {
-            Mark = DateTime.Now.AddSeconds(10);
+            Mark = DateTime.Now.AddSeconds(4);
         }
     }
 
     public void Disconnect() {
         Connector.Enabled = false;
-        EnableConnectorAt = DateTime.Now.AddSeconds(5);
+        EnableConnectorAt = DateTime.Now.AddSeconds(10);
     }
 
     protected void StartFlight() 
@@ -398,6 +439,7 @@ public class TransportDrone
     protected void FlightToPoint(bool isStart, MyWaypointInfo nextTarget) {
         StartPoint = RemoteControl.GetPosition();
         Target = nextTarget.Coords;
+        TargetInfo = nextTarget.ToString();
         
         RemoteControl.FlightMode = FlightMode.OneWay;
         if (isStart) {
@@ -495,6 +537,7 @@ public void Save()
         Sys.Config("Hangar").Value = Drone.Hangar.ToString();
         Sys.Config("Homepath").Value = Drone.Homepath;
         Sys.Config("CurrenPath").Value = Drone.CurrentPath.ToString();
+        Sys.Config("HasToDeliverCargo").Value = Drone.HasToDeliverCargo ? "Y": "N";
     }
     
     Sys.SaveConfig();
@@ -536,6 +579,7 @@ public void InitProgram()
     string hangarValue = Sys.Config("Hangar").Value;
     long hangar = hangarValue == String.Empty ? 0L : long.Parse(hangarValue);
     String homepath = Sys.Config("Homepath").Value;
+    bool hasToDeliverCargo = Sys.Config("HasToDeliverCargo").Value == "Y";
 
     Drone = new TransportDrone(
         remoteControl, 
@@ -544,7 +588,8 @@ public void InitProgram()
         new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
         cargoConnector,
         hangar,
-        homepath
+        homepath,
+        hasToDeliverCargo
     );
 
     string currentPath = Sys.Config("CurrenPath").Value;
@@ -633,8 +678,10 @@ public void UpdateInfo()
         + "Mode: " + Drone.Mode + "\n"
         + "CurrentPath: " + currentPath + "\n"
         + "Next Target: " + Drone.Target.ToString() + (Drone.Connector != null ? "(Offset: " + Drone.CalculateConnectorOffset().ToString() + ")" : "") + "\n"
+        + "             " + Drone.TargetInfo + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
+        + "NoFlightDetectCount: " + Drone.NoFlightDetectCount.ToString() + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
@@ -666,6 +713,11 @@ public void ReadArgument(String args)
         case "Disconnect":
             Drone.Disconnect();
             Echo("Disconnected.");
+            break;
+        case "Reset":
+            Drone = null;
+            Me.CustomData = "";
+            InitProgram();
             break;
         default:
             Echo("Available Commands: NowHome, AddPath and Disconnect");
@@ -716,6 +768,7 @@ public class MBOS {
     public Action<string> Echo;
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
+    public List<String> Traffic = new List<String>();
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -724,7 +777,6 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
-    protected List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;
