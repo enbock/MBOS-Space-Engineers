@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.0.0";
+const String VERSION = "4.0.1";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -460,6 +460,8 @@ public class TransportDrone
     }
 
     public Vector3D CalculateConnectorOffset() {
+        double offsetCorrection = 1.2;
+
         if(IsHomeConnected() == false && Connector.IsConnected) {
             List<IMyShipConnector> otherConnectors = new List<IMyShipConnector>();
             MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
@@ -467,11 +469,11 @@ public class TransportDrone
                 (IMyShipConnector connectorItem) => connectorItem.CubeGrid.EntityId == Connector.CubeGrid.EntityId
             );
             if(otherConnectors.Count > 0) {
-                 return RemoteControl.GetPosition() - otherConnectors[0].GetPosition();
+                 return (RemoteControl.GetPosition() - otherConnectors[0].GetPosition()) * offsetCorrection;
             }
         }
         
-        return RemoteControl.GetPosition() - Connector.GetPosition();
+        return (RemoteControl.GetPosition() - Connector.GetPosition()) * offsetCorrection;
     }
 
     protected void AddWaypointWithConnectorOffset(MyWaypointInfo waypoint) {

@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.6.0";
+const String VERSION = "1.6.1";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -470,8 +470,6 @@ public class ResourceManager {
                 "OrderResource|" + producer.Unit + "|" + quantity + "|" + producer.Waypoint.ToString()
             );
 
-            // TODO: For error checks, we can implement here waiting for "confirm order" message
-
             DeliverMission mission = new DeliverMission(
                 MBOS.Sys, 
                 consumer.Unit,
@@ -497,6 +495,12 @@ public class ResourceManager {
         return false;
     }
 
+    protected void ReRegisterAllStations()
+    {
+        MBOS.Sys.BroadCastTransceiver.SendMessage("ReRegisterProducer");
+        MBOS.Sys.BroadCastTransceiver.SendMessage("ReRegisterConsumer");
+    }
+
     protected void ResourceDelivered(List<string> parts) {
         String unit = parts[0];
         int quantity = int.Parse(parts[1]);
@@ -508,17 +512,20 @@ public class ResourceManager {
         );
         if(foundConsumer.Count == 0) {
             MBOS.Sys.Traffic.Add("ERROR: Update of resource without existant consumer for " + unit + " at " + waypoint);
+            ReRegisterAllStations();
             return;
         }
         List<DeliverMission> foundMissions = Missions.FindAll((DeliverMission missionItem) => missionItem.ConsumerWaypoint.Coords.Equals(foundConsumer[0].Waypoint.Coords, 0.01));
         if (foundMissions.Count == 0) {
             MBOS.Sys.Traffic.Add("ERROR: Delivery ignored! No mission found for " + unit + " at " + waypoint);
+            ReRegisterAllStations();
             return;
         } 
         foundConsumer[0].Delivered += quantity;
         if (foundConsumer[0].Delivered > foundConsumer[0].Requested) {
             MBOS.Sys.Traffic.Add("ERROR: To much delivering detected. Correcting it.");
             foundConsumer[0].Delivered = foundConsumer[0].Requested;
+            ReRegisterAllStations();
         }
     }
 
@@ -586,10 +593,21 @@ public void InitProgram()
 
     Manager = new ResourceManager(Sys);
 
-    Runtime.UpdateFrequency = UpdateFrequency.None; //UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
     Sys.BroadCastTransceiver.SendMessage("ReRegisterProducer");
     Sys.BroadCastTransceiver.SendMessage("ReRegisterConsumer");
+}
+
+public void CheckMessages() {
+    String message = string.Empty;
+    if((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+        Manager.ExecuteMessage(message);
+        return;
+    }
+    if((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
+        Manager.ExecuteMessage(message);
+    }
 }
 
 public void Main(String argument, UpdateType updateSource)
@@ -600,6 +618,7 @@ public void Main(String argument, UpdateType updateSource)
         InitProgram();
     }
 
+    CheckMessages();
     Manager.SearchRequestingConsumerForMissions();
     Manager.CorrectRuntimeData();
     Save();
@@ -607,7 +626,7 @@ public void Main(String argument, UpdateType updateSource)
 
     List<ResourceManager.Consumer> requestingConsumers = Manager.Consumers.FindAll((ResourceManager.Consumer consumerItem) => (consumerItem.Requested - consumerItem.Delivered) > 0);
     
-    Runtime.UpdateFrequency = requestingConsumers.Count > 0 ? UpdateFrequency.Update100 : UpdateFrequency.None;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
 }
 
 public void UpdateInfo()
@@ -637,14 +656,6 @@ public void ReadArgument(String args)
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
         case "ReceiveMessage":
-            Echo("Received radio data.");
-            String message = string.Empty;
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                Manager.ExecuteMessage(message);
-            }
-            while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                Manager.ExecuteMessage(message);
-            }
             break;
         case "SetLCD":
             IMyTextPanel lcd = Sys.GetBlockByName(allArgs) as IMyTextPanel;
@@ -659,12 +670,16 @@ public void ReadArgument(String args)
             Sys.Config("Missions").Value = String.Empty;
             Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
-        case "ClearMissions":
+        case "ResetMissions":
             Manager.Missions.Clear();
             Echo("Missions cleared.");
+            Sys.BroadCastTransceiver.SendMessage("ResetOrders");
+            break;
+        case "ResetOrders":
+            Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
         default:
-            Echo("Available Commands: \n  * SetLCD <Name of Panel>\n  * ClearMissions");
+            Echo("Available Commands: \n  * SetLCD <Name of Panel>\n  * ResetMissions\n  * ResetOrders");
             break;
     }
 }

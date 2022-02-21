@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.4.0";
+const String VERSION = "1.4.1";
 const String DATA_FORMAT = "1";
 
 /*
@@ -333,10 +333,19 @@ public void InitProgram()
 
     ConsumerManager = new Manager(Sys);
 
-    Runtime.UpdateFrequency = UpdateFrequency.Update100; //UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
+public void CheckMessages() {
+    String message = string.Empty;
+    if((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+        ConsumerManager.ExecuteMessage(message);
+    }
+    if((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
+        ConsumerManager.ExecuteMessage(message);
+    }
+}
 
 public void Main(String argument, UpdateType updateSource)
 {
@@ -346,6 +355,7 @@ public void Main(String argument, UpdateType updateSource)
         InitProgram();
     }
 
+    CheckMessages();
     ConsumerManager.UpdateStock();
     Save();
     UpdateInfo();
@@ -409,13 +419,6 @@ public void ReadArgument(String args)
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");
-            String message = string.Empty;
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                ConsumerManager.ExecuteMessage(message);
-            }
-            while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                ConsumerManager.ExecuteMessage(message);
-            }
             break;
         default:
             Echo(

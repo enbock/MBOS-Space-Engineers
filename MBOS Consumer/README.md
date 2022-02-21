@@ -1,7 +1,7 @@
 # MBOS Resource Consumer
 
 ## Working idea
-Consumes resources, like `ChargedEnergyCell`, `IronIngot`, `SteelPlate`, `H2`, etc.
+Consumes resources, like `ChargedEnergyCell`, `Ingot/Iron`, `SteelPlate`, `H2`, etc.
 
 A typical factory has Consumer and Producer.
 

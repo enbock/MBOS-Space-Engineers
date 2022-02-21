@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "2.0.0";
+const String VERSION = "2.0.1";
 const String DATA_FORMAT = "2";
 
 /**
@@ -371,6 +371,16 @@ public void InitProgram()
     Echo("Program initialized.");
 }
 
+public void CheckMessages()
+{
+    String message = string.Empty;
+    if((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
+        Hangar.ExecuteMessage(message);
+    }
+    if((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+        Hangar.ExecuteMessage(message);
+    }
+}
 
 public void Main(String argument, UpdateType updateSource)
 {
@@ -384,10 +394,11 @@ public void Main(String argument, UpdateType updateSource)
         }
     }
 
+    CheckMessages();
     Hangar.CheckMissions();
     Save();
     UpdateInfo();
-    Runtime.UpdateFrequency = Hangar.Missions.Count > 0 ? UpdateFrequency.Update100 : UpdateFrequency.None;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
 }
 
 
@@ -434,13 +445,6 @@ public void ReadArgument(String args)
             break;
         case "ReceiveMessage":
             Sys.Traffic.Add("Received radio data.");
-            String message = string.Empty;
-            while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                Hangar.ExecuteMessage(message);
-            }
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                Hangar.ExecuteMessage(message);
-            }
             if(allArgs != string.Empty) Hangar.ExecuteMessage(allArgs);
             break;
         case "ClearMissions": 

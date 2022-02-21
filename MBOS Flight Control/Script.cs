@@ -1,5 +1,5 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.1.1";
+const String VERSION = "1.1.2";
 const String DATA_FORMAT = "1";
 
 /*
@@ -217,7 +217,7 @@ public class FlightControl
         if(foundStations.Count == 0) {
             foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == startGrid);
             if(foundHangars.Count == 0) {
-                MBOS.Sys.Echo("ERROR: Start station not found: " + startGrid);
+                MBOS.Sys.Traffic.Add("ERROR: Start station not found: " + startGrid);
                 return;
             }
             startStation = (Station) foundHangars[0];
@@ -228,7 +228,7 @@ public class FlightControl
         if(foundStations.Count == 0) {
             foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == targetGrid);
             if(foundHangars.Count == 0) {
-                MBOS.Sys.Echo("ERROR: Target station not found: " + targetGrid);
+                MBOS.Sys.Traffic.Add("ERROR: Target station not found: " + targetGrid);
                 return;
             }
             targetStation = (Station) foundHangars[0];
@@ -415,7 +415,13 @@ public void ReadArgument(String args)
             }
             break;*/
         default:
-            Echo("Available Commands: \n  * SetLCD <Name of Panel>");
+            Echo(
+                "Available Commands: \n"
+                +"  * RegisterFlightPath <Start-GridID> <Target-GridID> <GPS>[...]\n"
+                +"  * SetFallback <GPS>\n"
+                +"  * SetLCD <Name of Panel>\n"
+                +"  * SetLCD <Name of Panel>\n"
+                );
             break;
     }
 }
@@ -471,7 +477,7 @@ public class MBOS {
     public IMyTextSurface ComputerDisplay;
 
     protected bool ConfigLoaded = false;
-    protected List<String> Traffic = new List<String>();
+    public List<String> Traffic = new List<String>();
 
     public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
         Me = me;

@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "2.0.0";
+const String VERSION = "2.0.1";
 const String DATA_FORMAT = "2";
 
 /*
@@ -293,7 +293,7 @@ public class Manager
             switch(resource.Type) {
                 case UnitType.Single:
                 case UnitType.Battery:
-                    if (resource.Stock == 0 && resource.Reservation >= 1) {
+                    if (resource.Stock == 0 && resource.Reservation > 0) {
                         resource.Reservation = 0;
                     }
                     break;
@@ -365,15 +365,15 @@ public class Manager
 
     protected void SendUpdate(Resource resource) {
         if(UpgradeResourceWaypoint(resource)) {
-            MBOS.Sys.Traffic.Add("SendUpdate blocked. Upgrade happened.(" + resource.Stock + ")" + resource.ConnectedWaypoint);
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. Upgrade happened. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
             return;
         }
         if(resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
-            MBOS.Sys.Traffic.Add("SendUpdate blocked. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. WP should not equal. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
             return;
         }
         if(resource.RegisteredByManager == 0L) {
-            MBOS.Sys.Traffic.Add("SendUpdate blocked. Register first. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
+            MBOS.Sys.Traffic.Add("SendUpdate blocked. Wait for register approval. (" + resource.Stock + ")" + resource.ConnectedWaypoint);
             BroadCastResource(resource);
             return;
         }
@@ -466,6 +466,17 @@ public void InitProgram()
     Echo("Program initialized.");
 }
 
+public void CheckMessages() 
+{
+    String message = string.Empty;
+    if((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+        ProducerManager.ExecuteMessage(message);
+        return;
+    }
+    if((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
+        ProducerManager.ExecuteMessage(message);
+    }
+}
 
 public void Main(String argument, UpdateType updateSource)
 {
@@ -475,6 +486,7 @@ public void Main(String argument, UpdateType updateSource)
         InitProgram();
     }
 
+    CheckMessages();
     ProducerManager.LoadCargoToContainer();
     ProducerManager.UpdateStock();
     Save();
@@ -536,13 +548,6 @@ public void ReadArgument(String args)
             break;
         case "ReceiveMessage":
             Echo("Received radio data.");
-            String message = string.Empty;
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                ProducerManager.ExecuteMessage(message);
-            }
-            while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                ProducerManager.ExecuteMessage(message);
-            }
             break;
         default:
             Echo(
