@@ -76,7 +76,7 @@ IMyRemoteControl ctrlFlight = null;
  */
 public Program() {
     Gyros.Clear();
-    Runtime.UpdateFrequency = UpdateFrequency.Update10;
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
     GridTerminalSystem.GetBlocksOfType<IMyGyro>(Gyros);
     for(int i = Gyros.Count -1 ; i>= 0; i--) {
         if (Gyros[i].GyroOverride == false) {

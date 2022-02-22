@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "2.0.1";
+const String VERSION = "2.1.0";
 const String DATA_FORMAT = "2";
 
 /*
@@ -444,7 +444,6 @@ Manager ProducerManager;
 public Program()
 {
     Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
-    Runtime.UpdateFrequency = UpdateFrequency.None;
 
     InitProgram();
 }
@@ -683,6 +682,8 @@ public class MBOS {
         ConfigLoaded = true;
         
         LoadConfig(Me.CustomData, ConfigList);
+        Transceiver.Buffer = new UniTransceiver.NetBuffer(Config("UniTransceiver").Value);
+        BroadCastTransceiver.Buffer = new WorldTransceiver.NetBuffer(Config("WorldTransceiver").Value);
     } 
 
     public void LoadConfig(String data, List<ConfigValue> configList)
@@ -706,6 +707,8 @@ public class MBOS {
 
     public void SaveConfig()
     {
+        Config("UniTransceiver").Value = Transceiver.Buffer.ToString();
+        Config("WorldTransceiver").Value = BroadCastTransceiver.Buffer.ToString();
         SaveConfig(Me, ConfigList);
     }
 
@@ -722,6 +725,28 @@ public class MBOS {
     }
 
     public class WorldTransceiver {
+        public class NetBuffer 
+        {
+            public List<String> Input = new List<String>();
+            public List<String> Output = new List<String>();
+
+            public NetBuffer() {}
+
+            public NetBuffer(String import)
+            {
+                if (import == String.Empty) return;
+
+                String[] io = import.Trim().Split('µ');
+                if(io.Length < 2) return;
+                if (io[0].Length > 0)  Input = new List<String>(io[0].Split('§'));
+                if (io[1].Length > 0) Output = new List<String>(io[1].Split('§'));
+            }
+
+            public override String ToString()
+            {
+                return String.Join("§", Input.ToArray()) + "µ" + String.Join("§", Output.ToArray());
+            }
+        }
         
         public String Channel;
         public IMyBroadcastListener BroadcastListener;
@@ -730,6 +755,7 @@ public class MBOS {
         protected TransmissionDistance Range = TransmissionDistance.AntennaRelay;
         protected String LastSendData = "";
         protected List<String> Traffic = new List<String>();
+        public NetBuffer Buffer = new NetBuffer();
 
         public WorldTransceiver(MBOS sys, List<String> traffic) {
             Sys = sys;
@@ -750,6 +776,22 @@ public class MBOS {
 
         public String ReceiveMessage()
         { 
+            String message = string.Empty;
+            while((message = DownloadMessage()) != string.Empty) {
+                Buffer.Input.Add(message);
+            }
+            UploadMessage();
+
+            if (Buffer.Input.Count == 0) return String.Empty;
+            
+            message = Buffer.Input[0];
+            Buffer.Input.RemoveAt(0);
+            Traffic.Add("[B+]< " + message);
+
+            return message;
+        }
+
+        private String DownloadMessage() {
             if (!BroadcastListener.HasPendingMessage) return String.Empty;
 
             MyIGCMessage message = BroadcastListener.AcceptMessage();
@@ -765,23 +807,35 @@ public class MBOS {
             stack = stack.Skip(1).ToArray(); // remove timestamp
 
             String messageText = String.Join("|", stack);
-            Traffic.Add("[B]< " + messageText);
+            Traffic.Add("[B_]< " + messageText);
 
             return messageText;
         }
 
         public void SendMessage(String data) 
         {
-            String message = DateTime.Now.ToBinary() + "|" + data;
+            Buffer.Output.Add(data);
+            Traffic.Add("[B+]> " + data);
+        }
+
+        private void UploadMessage() 
+        {
+            if (Buffer.Output.Count == 0) return;
+
+            String messageText = Buffer.Output[0];
+            Buffer.Output.RemoveAt(0);
+
+            String message = DateTime.Now.ToBinary() + "|" + messageText;
+            
             Sys.IGC.SendBroadcastMessage<String>(Channel, message, Range);
             LastSendData = message;
-            Traffic.Add("[B]> " + data);
+            Traffic.Add("[B_]> " + messageText);
         }
 
         public String DebugTraffic()
         {
-            if(Traffic.Count > 60) {
-                Traffic.RemoveRange(0, Traffic.Count - 60);
+            if(Traffic.Count > 20) {
+                Traffic.RemoveRange(0, Traffic.Count - 20);
             }
             
             String output = "";
@@ -797,9 +851,63 @@ public class MBOS {
 
     public class UniTransceiver
     {
+        public class SendMessageInfo
+        {
+            public long Receiver = 0L;
+            public String Data = String.Empty; 
+
+            public SendMessageInfo(long receiver, String data)
+            {
+                Receiver = receiver;
+                Data = data;
+            }
+
+            public SendMessageInfo(String import)
+            {
+                String[] io = import.Trim().Split('\\');
+                Receiver = long.Parse(io[0]);
+                Data = io[1];
+            }
+
+            public override String ToString() {
+                return Receiver.ToString() + "\\" + Data;
+            }
+        }
+
+        public class NetBuffer 
+        {
+            public List<String> Input = new List<String>();
+            public List<SendMessageInfo> Output = new List<SendMessageInfo>();
+
+            public NetBuffer() {}
+
+            public NetBuffer(String import)
+            {
+                if (import == String.Empty) return;
+
+                String[] io = import.Trim().Split('µ');
+                if(io.Length < 2) return;
+                if (io[0].Length > 0) Input = new List<String>(io[0].Split('§'));
+
+                if (io[1].Length == 0) return;
+                Output.Clear(); 
+                List<String> output = new List<String>(io[1].Split('§'));
+                output.ForEach((String outputMessage) => Output.Add(new SendMessageInfo(outputMessage)));
+            }
+
+            public override String ToString()
+            {
+                List<String> output = new List<String>();
+                Output.ForEach((SendMessageInfo info) => output.Add(info.ToString()));
+
+                return String.Join("§", Input.ToArray()) + "µ" + String.Join("§", output.ToArray());
+            }
+        }
+
         protected IMyUnicastListener Listener;
         protected MBOS Sys;
         protected List<String> Traffic = new List<String>();
+        public NetBuffer Buffer = new NetBuffer();
 
         public UniTransceiver(MBOS sys, List<String> traffic)
         {
@@ -812,26 +920,53 @@ public class MBOS {
 
         public String ReceiveMessage()
         { 
+            String message = string.Empty;
+            while((message = DownloadMessage()) != string.Empty) {
+                Buffer.Input.Add(message);
+            }
+            UploadMessage();
+
+            if (Buffer.Input.Count == 0) return String.Empty;
+            
+            message = Buffer.Input[0];
+            Buffer.Input.RemoveAt(0);
+            Traffic.Add("[U+]< " + message);
+
+            return message;
+        }
+
+        private String DownloadMessage()
+        {
             if (!Listener.HasPendingMessage) return String.Empty;
 
             MyIGCMessage message = Listener.AcceptMessage();
             String incoming = message.As<String>();
 
-            Traffic.Add("[U]< " + incoming);
+            Traffic.Add("[U_]< " + incoming);
 
             return incoming;
         }
 
         public void SendMessage(long target, String data) 
         {
-            Traffic.Add("[U]> " + data);
-            Sys.IGC.SendUnicastMessage<string>(target, "whisper", data);
+            Buffer.Output.Add(new SendMessageInfo(target, data));
+            Traffic.Add("[U+]> " + data);
+        }
+
+        private void UploadMessage() 
+        {
+            if (Buffer.Output.Count == 0) return;
+            SendMessageInfo info = Buffer.Output[0];
+            Buffer.Output.RemoveAt(0);
+
+            Traffic.Add("[U_]> " + info.Data);
+            Sys.IGC.SendUnicastMessage<string>(info.Receiver, "whisper", info.Data);
         }
         
         public String DebugTraffic()
         {
-            if(Traffic.Count > 60) {
-                Traffic.RemoveRange(0, Traffic.Count - 60);
+            if(Traffic.Count > 20) {
+                Traffic.RemoveRange(0, Traffic.Count - 20);
             }
             
             String output = "";

@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.0.1";
+const String VERSION = "4.0.4";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -195,6 +195,14 @@ public class TransportDrone
 
     protected void CheckFlight()
     {
+        if(!Connector.IsConnected) {
+            SetupThrusters(true);
+        }
+        if(!IsHomeConnected() || !Connector.IsConnected) {
+            Batteries.SetAuto();
+        }
+
+
         Vector3D offset = CalculateConnectorOffset();
         LastDistance = Distance;
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
@@ -204,8 +212,6 @@ public class TransportDrone
             Distance = 0;
             //traveled = 0;
         }
-
-        if(!Connector.IsConnected) SetupThrusters(true);
 
         bool withAvoidance = Mode != "Direct" || (Mode == "Direct" && Distance > 60.0);
         RemoteControl.SetCollisionAvoidance(withAvoidance);
@@ -384,6 +390,7 @@ public class TransportDrone
     }
 
     public void Disconnect() {
+        if (Hangar == 0L) return; // No flight without Hangar :P
         Connector.Enabled = false;
         EnableConnectorAt = DateTime.Now.AddSeconds(10);
     }
@@ -521,7 +528,6 @@ MBOS Sys;
 public Program()
 {
     Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
-    Runtime.UpdateFrequency = UpdateFrequency.None;
 
     InitProgram();
 }
@@ -625,8 +631,7 @@ public void Main(String argument, UpdateType updateSource)
     
     if (Drone == null) {
         InitProgram();
-        if (Drone == null) { 
-            Runtime.UpdateFrequency = UpdateFrequency.None;
+        if (Drone == null) {
             return;
         }
     }
@@ -637,8 +642,6 @@ public void Main(String argument, UpdateType updateSource)
 
     if (Drone.Mode != "None") {
         Runtime.UpdateFrequency = UpdateFrequency.Update10;
-    } else if (Drone.IsHomeConnected()) {
-        Runtime.UpdateFrequency = UpdateFrequency.None;
     } else {
         Runtime.UpdateFrequency = UpdateFrequency.Update100;
     }
@@ -727,6 +730,10 @@ public void ReadArgument(String args)
     }
 }
 
+/**
+* Attention MBOS disconnected from Main-Stream!!!
+* Buffered network shall not add to drone controlling.
+*/
 public class MBOS {
     public class ConfigValue
     { 
