@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "2.1.1";
+const String VERSION = "2.1.2";
 const String DATA_FORMAT = "2";
 
 /*
@@ -327,7 +327,7 @@ public class Manager
                 otherFreeConnectors, 
                 (IMyShipMergeBlock connectorItem) => 
                     connectorItem.CubeGrid.EntityId == resource.Connector.OtherConnector.CubeGrid.EntityId
-                    && connectorItem.IsConnected == false
+                    && connectorItem.IsConnected == false && connectorItem.CustomData.Trim() == "Loader"
             );
             if (resource.RegisteredByManager != 0L && resource.Waypoint.Equals(resource.ConnectedWaypoint)) {
                 TransmitResourceRemoval(resource);
