@@ -13,5 +13,9 @@ This is the station representer. It do "standard stuff", like register grid on F
 [B] == Broad cast    
 [U] == Unicast
 
-### Register at FlightControl
-* [B]< `RegisterStation|<Station-ID>|<Hangar-GridID>|<FlightIn Waypoint>`
+### Register at FlightControl, Resource Manager, etc
+* [B]> `RegisterStation|<Station-ID>|<Station-GridID>|<FlightIn Waypoint>`
+
+### Erneute Registrierung 
+* [B]< `RequestRenewStationRegister`
+* [B]> `RegisterStation|<Station-ID>|<Station-GridID>|<FlightIn Waypoint>`

@@ -1,5 +1,5 @@
 const String NAME = "Producer";
-const String VERSION = "2.1.0";
+const String VERSION = "2.1.1";
 const String DATA_FORMAT = "2";
 
 /*
@@ -518,6 +518,8 @@ public void UpdateInfo()
         + "\n"
         + "Registered Resources: " + ProducerManager.Resources.Count.ToString() + "\n"
         + stockResourceOutput
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;

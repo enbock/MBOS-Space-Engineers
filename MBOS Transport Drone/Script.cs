@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.0.4";
+const String VERSION = "4.1.1";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -53,6 +53,20 @@ public class TransportDrone
         }
     }
 
+    public class FlightTime 
+    {
+        public String From;
+        public String To;
+        public String Time; // in seconds
+
+        public FlightTime(String from, String to, String time) 
+        {
+            From = from;
+            To = to;
+            Time = time;
+        }
+    }
+
     public IMyRemoteControl RemoteControl;
     protected IMyGridTerminalSystem GridTerminalSystem;
     public MBOS Sys;
@@ -69,6 +83,11 @@ public class TransportDrone
     public long Hangar = 0L;
     public String Homepath = String.Empty;
     public bool HasToDeliverCargo = false;
+    public List<FlightTime> FlightRecord = new List<FlightTime>();
+    public bool RecordFlight = false;
+    private String StartedAt = String.Empty;
+    private String StartedLastTarget = String.Empty;
+    private DateTime StartTime = DateTime.Now;
 
     protected DateTime Mark = DateTime.Now;
     protected DateTime EnableConnectorAt = DateTime.Now;
@@ -302,6 +321,22 @@ public class TransportDrone
                     Lights.TurnOff();
                     SetupThrusters(false);
                     HasToDeliverCargo = false;
+                    if (RecordFlight && StartedAt != String.Empty && StartedLastTarget != String.Empty) { // Save last path time
+                        FlightRecord.Add(
+                            new FlightTime(
+                                StartedAt, 
+                                StartedLastTarget, 
+                                DateTime.Now.Subtract(StartTime).TotalSeconds.ToString()
+                            )
+                        );
+                    }
+                    FlightRecord.ForEach(
+                        (FlightTime t) => MBOS.Sys.BroadCastTransceiver.SendMessage("FlightTime|" + t.From + "|" + t.To + "|" + t.Time)
+                    );
+                    FlightRecord.Clear();
+                    StartedAt = String.Empty;
+                    StartedLastTarget = String.Empty;
+                    RecordFlight = false;
                 } else {
                     if (!HasToDeliverCargo) {
                         if(Connector.IsConnected) {
@@ -315,6 +350,10 @@ public class TransportDrone
                                 countMissingCargo = 0;
                                 MBOS.Sys.Traffic.Add("[CF]: Cargo is missing...abort mission");
                                 FlightPaths.Clear();
+                                FlightRecord.Clear();
+                                StartedAt = String.Empty;
+                                StartedLastTarget = String.Empty;
+                                RecordFlight = false;
                                 GoHome();
                                 break;
                             }
@@ -331,6 +370,7 @@ public class TransportDrone
             case "Mark":
                 if (FlightPaths.Count > 0) {
                     if (IsHomeConnected()) {
+                        RecordFlight = true;
                         StartFlight();
                         HasToDeliverCargo = true;
                         LastRunWasConnected = false;
@@ -399,6 +439,7 @@ public class TransportDrone
     {
         if (FlightPaths.Count == 0) return;
         
+        AddFlightRecord(FlightPaths[0].Waypoints[0]);
         StartingFlight(FlightPaths[0].Waypoints[0]);
     }
 
@@ -447,6 +488,8 @@ public class TransportDrone
         StartPoint = RemoteControl.GetPosition();
         Target = nextTarget.Coords;
         TargetInfo = nextTarget.ToString();
+
+        AddFlightRecord(nextTarget);
         
         RemoteControl.FlightMode = FlightMode.OneWay;
         if (isStart) {
@@ -464,6 +507,32 @@ public class TransportDrone
         
         RemoteControl.SetAutoPilotEnabled(true);
         EnableCargoThrusters();
+    }
+
+    private void AddFlightRecord(MyWaypointInfo nextTarget)
+    {
+        String target = nextTarget.ToString();
+
+        if(!RecordFlight) return;
+        if (StartedAt != String.Empty && StartedLastTarget != String.Empty && StartedAt != StartedLastTarget) {
+            FlightRecord.Add(
+                new FlightTime(
+                    StartedAt, 
+                    StartedLastTarget, 
+                    DateTime.Now.Subtract(StartTime).TotalSeconds.ToString()
+                )
+            );
+            StartTime = DateTime.Now.AddSeconds(0);
+        }
+        if (StartedAt == String.Empty && StartedLastTarget == String.Empty) {
+            StartTime = DateTime.Now.AddSeconds(0);
+        }
+        if (StartedAt != StartedLastTarget) {
+            StartedAt = StartedLastTarget;
+        }
+        if (StartedLastTarget != target) {
+            StartedLastTarget = target;
+        }
     }
 
     public Vector3D CalculateConnectorOffset() {
@@ -686,7 +755,7 @@ public void UpdateInfo()
         + "             " + Drone.TargetInfo + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
-        + "NoFlightDetectCount: " + Drone.NoFlightDetectCount.ToString() + "\n"
+        + "Record: " + (Drone.RecordFlight ? (Drone.FlightRecord.Count > 0 ? "Last: "+Drone.FlightRecord[Drone.FlightRecord.Count - 1].Time + "s": "Recording...") : "No Record active") + "\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;

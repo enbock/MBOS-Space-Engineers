@@ -1,23 +1,35 @@
 const String NAME = "Flight Control";
-const String VERSION = "1.2.0";
+const String VERSION = "2.0.0";
 const String DATA_FORMAT = "1";
 
 /*
     Examples from X-World:
-        RegisterFlightPath 127797482999529571 91029766205012422 GPS::48058.54:30421.23:23013.6:GPS::48026.37:30577.35:22880.5:GPS::48089.26:30621.37:22682.89:GPS::48122.93:30572.5:22677.53:GPS::48178.75:30611.43:22521.67:
-        RegisterFlightPath 91029766205012422 127797482999529571 GPS::48189.27:30623.5:22482.73:GPS::48111.23:30571.84:22719.95:GPS::48072.16:30542.42:22842.8:GPS::48050.44:30571:22889.77:GPS::48069.75:30455.18:23006.93:
-        RegisterFlightPath 127797482999529571 108475315539771737 GPS::48068.42:30517.89:23051.31:GPS::47779:31247.37:22704.96:
-        RegisterFlightPath 108475315539771737 127797482999529571 GPS::47755.46:31254.76:22744.02:GPS::47988.64:30528.99:23203.6:
-
         RequestFlight|-8585778962141942972|transport|GPS:EmptyEnergyCell Connected:18213.223080337317:140078.30541871215:-105136.17496217653:|141800612156212441|GPS:EmptyEnergyCell Target:17998.674241177887:141498.49835116041:-105890.46044299923:|92440036194299365
 */
 
 public class FlightControl
 {
+    public class FlightTime {
+        public double Time;
+        public Station Target;
+
+        public FlightTime(Station target, double time)
+        {
+            Target = target;
+            Time = time;
+        }
+
+        public override String ToString()
+        {
+            return Target.EntityId.ToString() + "~" + Time.ToString();
+        }
+    }
+
     public class Station {
         public long EntityId;
         public long GridId;
         public MyWaypointInfo FlightIn = MyWaypointInfo.Empty;
+        public List<FlightTime> Weights = new List<FlightTime>();
 
         public Station(long entityId, long gridId, MyWaypointInfo flightIn) {
             EntityId = entityId;
@@ -36,10 +48,24 @@ public class FlightControl
         }
 
         public override String ToString() {
+            List<String> weights = new List<String>();
+            Weights.ForEach((FlightTime t) => weights.Add(t.ToString()));
+
             return EntityId.ToString()
                 + "*" + GridId.ToString()
                 + "*" + FlightIn.ToString()
+                + "*" + String.Join("§", weights.ToArray())
             ;
+        }
+
+        public FlightTime GetWeightForStation(Station target)
+        {
+            FlightTime weight = Weights.Find((FlightTime f) => f.Target == target);
+            if (weight == null) {
+                weight = new FlightTime(target, Vector3D.Distance(FlightIn.Coords, target.FlightIn.Coords) / 50.0); // Flightspeed 50m/s (must higher than real speed!)
+                Weights.Add(weight);
+            }
+            return weight;
         }
     }
 
@@ -48,49 +74,12 @@ public class FlightControl
         public Hangar(string data) : base (data) {}
     }
 
-    public class FlightPath {
-        public long StartGridId;
-        public long TargetGridId;
-        public List<MyWaypointInfo> Waypoints = new List<MyWaypointInfo>();
-
-        public FlightPath(long startGridId, long targetGridId, string waypoints) {
-            StartGridId = startGridId;
-            TargetGridId = targetGridId;
-            MyWaypointInfo.FindAll(waypoints, Waypoints);
-        }
-
-        public FlightPath(string data) {
-            List<String> parts = new List<String>(data.Split('*'));
-            StartGridId = long.Parse(parts[0]);
-            TargetGridId = long.Parse(parts[1]);
-            MyWaypointInfo.FindAll(parts[2], Waypoints);
-        }
-
-        public String WaypointsToString() {
-            List<string> waypoints = new List<string>();
-            Waypoints.ForEach((MyWaypointInfo waypoint) => waypoints.Add(waypoint.ToString()));
-
-            return String.Join("", waypoints.ToArray());
-        }
-
-        public override String ToString() {
-
-            return StartGridId.ToString()
-                + "*" + TargetGridId.ToString()
-                + "*" + WaypointsToString()
-            ;
-        }
-    }
-
     MBOS Sys;
     public List<Hangar> Hangars = new List<Hangar>();
     public List<Station> Stations = new List<Station>();
-    public List<FlightPath> FlightPaths = new List<FlightPath>();
-    public MyWaypointInfo FallBackFlightPathWaypoint = MyWaypointInfo.Empty;
 
-    public FlightControl(MBOS sys, MyWaypointInfo fallbackFleightPathWaypoint) {
+    public FlightControl(MBOS sys) {
         Sys = sys;
-        FallBackFlightPathWaypoint = fallbackFleightPathWaypoint;
 
         Load();
     }
@@ -103,14 +92,10 @@ public class FlightControl
         list.Clear();
         Hangars.ForEach((Hangar hangar) => list.Add(hangar.ToString()));
         Sys.Config("Hangars").Value = String.Join("|", list.ToArray());
-
-        list.Clear();
-        FlightPaths.ForEach((FlightPath flightPath) => list.Add(flightPath.ToString()));
-        Sys.Config("FlightPaths").Value = String.Join("|", list.ToArray());
     }
 
     public void SendReady() {
-        Sys.BroadCastTransceiver.SendMessage("FlightControlReady|"+Sys.EntityId);
+        Sys.BroadCastTransceiver.SendMessage("RequestRenewStationRegister|"+Sys.EntityId);
     }
 
     public void ExecuteMessage(string message) {
@@ -128,54 +113,101 @@ public class FlightControl
             case "RequestFlight":
                 RequestFlight(parts);
                 break;
+            case "FlightTime":
+                UpdateFlightTime(parts[0], parts[1], double.Parse(parts[2]));
+                break;
         }
     }
 
-    public bool RegisterFlightPath(long startGrid, long targetGrid, string waypoints) {
-        FlightPath flightPath = new FlightPath(startGrid, targetGrid, waypoints);
-        if (flightPath.Waypoints.Count == 0) return false;
-
-        List<FlightPath> foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == startGrid && path.TargetGridId == targetGrid);
-        foundPaths.ForEach(
-            delegate(FlightPath path) {
-                FlightPaths.Remove(path);
-            }
-        );
-        FlightPaths.Add(flightPath);
-
-        return true;
+    private class LoadedDataForStation {
+        public Station Station;
+        public String Data;
+        public LoadedDataForStation(Station station, String data)
+        {
+            Station = station;
+            Data = data;
+        }
     }
 
     protected void Load() {
-        List<String> list = new List<String>(Sys.Config("Stations").Value.Split('|'));
-        list.ForEach(delegate(String line) {
-            if(line != String.Empty) Stations.Add(new Station(line));
-        });
-        
+        List<String> list;
+
         list = new List<String>(Sys.Config("Hangars").Value.Split('|'));
         list.ForEach(delegate(String line) {
-            if(line != String.Empty) Hangars.Add(new Hangar(line));
+            if(line == String.Empty) return;
+            Hangar hangar = new Hangar(line);
+            Hangars.Add(hangar);
+            AddStation(hangar);
         });
-        
-        list = new List<String>(Sys.Config("FlightPaths").Value.Split('|'));
+
+        list = new List<String>(Sys.Config("Stations").Value.Split('|'));
+        List<LoadedDataForStation> flightTimes = new List<LoadedDataForStation>();
         list.ForEach(delegate(String line) {
-            if(line != String.Empty) FlightPaths.Add(new FlightPath(line));
+            if(line == String.Empty) return;
+            Station loadedStation = new Station(line);
+            loadedStation = AddStation(loadedStation); // Posibible pointer change to station object!
+
+            List<String> parts = new List<String>(line.Split('*'));
+            if(parts.Count > 2) flightTimes.Add(new LoadedDataForStation(loadedStation, parts[0]));
         });
+
+        flightTimes.ForEach(delegate(LoadedDataForStation line) {
+            LoadFlightTimes(line.Station, line.Data);
+        });
+    }
+
+    public void LoadFlightTimes(Station station, String data) 
+    {
+        List<String> weights = new List<String>(data.Split('§'));
+
+        weights.ForEach(
+            delegate (String weightData) {
+                List<String> parts = new List<String>(weightData.Split('~'));
+                if (parts.Count < 2) return;
+
+                long entityId = long.Parse(parts[0]);
+                double time = double.Parse(parts[1]);
+
+                Station found = Stations.Find((Station s) => s.EntityId == entityId);
+                if (found == null) return;
+                station.GetWeightForStation(found).Time = time;
+            }
+        );
     }
 
     protected void RegisterStation(long entityId, long gridId, string flightInGps) {
         MyWaypointInfo flightIn = MyWaypointInfo.Empty;
         MBOS.ParseGPS(flightInGps, out flightIn);
         Station newStation;
-        List<Station> foundStations = Stations.FindAll((Station station) => station.GridId == gridId);
+        List<Station> foundStations = Stations.FindAll((Station station) => station.EntityId == entityId);
         if (foundStations.Count > 0) {
             newStation = foundStations[0];
             newStation.FlightIn = flightIn;
             newStation.EntityId = entityId;
+            UpdateWeights(newStation);
         } else {
             newStation = new Station(entityId, gridId, flightIn);
-            Stations.Add(newStation);
+            AddStation(newStation);
         }
+    }
+
+    private Station AddStation(Station newStation)
+    {
+        Station station = Stations.Find((Station s) => s.EntityId == newStation.EntityId);
+        if (station != null) return station; 
+
+        Stations.Add(newStation);
+        UpdateWeights(newStation);
+
+        return newStation;
+    }
+
+    private void UpdateWeights(Station station)
+    {
+        Stations.ForEach((Station i) => {
+            station.GetWeightForStation(i);
+            i.GetWeightForStation(station);
+        });
     }
 
     protected void RegisterHangar(long entityId, long gridId, string flightInGps) {
@@ -187,10 +219,12 @@ public class FlightControl
             newHangar = foundHangars[0];
             newHangar.FlightIn = flightIn;
             newHangar.EntityId = entityId;
+            UpdateWeights(newHangar);
         } else {
             newHangar = new Hangar(entityId, gridId, flightIn);
             Hangars.Add(newHangar);
         }
+        AddStation(newHangar);
     }
 
     protected void RequestFlight(List<string> parts)
@@ -215,66 +249,90 @@ public class FlightControl
         Station targetStation;
         foundStations = Stations.FindAll((Station stationItem) => stationItem.GridId == startGrid);
         if(foundStations.Count == 0) {
-            foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == startGrid);
-            if(foundHangars.Count == 0) {
-                MBOS.Sys.Traffic.Add("ERROR: Start station not found: " + startGrid);
-                return;
-            }
-            startStation = (Station) foundHangars[0];
-        } else {
-            startStation = foundStations[0];
-        };
+            MBOS.Sys.Traffic.Add("ERROR: Start station not found: " + startGrid);
+            return;
+        }
+        startStation = foundStations[0];
+
         foundStations = Stations.FindAll((Station stationItem) => stationItem.GridId == targetGrid);
         if(foundStations.Count == 0) {
-            foundHangars = Hangars.FindAll((Hangar hangarItem) => hangarItem.GridId == targetGrid);
-            if(foundHangars.Count == 0) {
-                MBOS.Sys.Traffic.Add("ERROR: Target station not found: " + targetGrid);
-                return;
-            }
-            targetStation = (Station) foundHangars[0];
-        } else {
-            targetStation = foundStations[0];
-        };
+            MBOS.Sys.Traffic.Add("ERROR: Target station not found: " + targetGrid);
+            return;
+        } 
+        targetStation = foundStations[0];
 
-        List<FlightPath> foundPaths;
-        string flightPath = hangar.FlightIn.ToString();
+        String flightPath = hangar.FlightIn.ToString();
 
-        if (hangar.GridId != startStation.GridId) {
-            // Search hangar to start grid
-            foundPaths = FlightPaths.FindAll(
-                (FlightPath path) => path.StartGridId == hangar.GridId && path.TargetGridId == startStation.GridId
-            );
-            if (foundPaths.Count > 0) {
-                flightPath += foundPaths[0].WaypointsToString();
-            } /*else {
-                flightPath += FallBackFlightPathWaypoint.ToString();
-            }*/
-        }
+        flightPath += FindFlightPath(hangar, startStation);
         flightPath += startStation.FlightIn.ToString() + ">" + startWaypoint.ToString() + "<" + startStation.FlightIn.ToString();
         
-        // Search start grid to target grid
-        foundPaths = FlightPaths.FindAll(
-            (FlightPath path) => path.StartGridId == startStation.GridId && path.TargetGridId == targetStation.GridId
-        );
-        if (foundPaths.Count > 0) {
-            flightPath += foundPaths[0].WaypointsToString();
-        } /*else {
-            flightPath += FallBackFlightPathWaypoint.ToString();
-        }*/
+        flightPath += FindFlightPath(startStation, targetStation);
         flightPath += targetStation.FlightIn.ToString() + ">" + targetWaypoint.ToString() + "<" + targetStation.FlightIn.ToString();
 
-        if (targetStation.GridId != hangar.GridId) {
-            // Search target grid to hangar
-            foundPaths = FlightPaths.FindAll((FlightPath path) => path.StartGridId == targetStation.GridId && path.TargetGridId == hangar.GridId);
-            if (foundPaths.Count > 0) {
-                flightPath += foundPaths[0].WaypointsToString();
-            } /*else {
-                flightPath += FallBackFlightPathWaypoint.ToString();
-            }*/
-            flightPath += hangar.FlightIn.ToString();
-        }
+        flightPath += FindFlightPath(targetStation, hangar);
 
         Sys.Transceiver.SendMessage(hangar.EntityId, "RequestTransport|" + missionId + "|" + type + "|" + flightPath);
+    }
+
+    private void UpdateFlightTime(String from, String to, double time)
+    {
+        if (time <= 0 || from == to) return;
+
+        Station fromStation = Stations.Find((Station s) => s.FlightIn.ToString() == from);
+        Station toStation = Stations.Find((Station s) => s.FlightIn.ToString() == to);
+        if (fromStation == null || toStation == null) return;
+
+        fromStation.GetWeightForStation(toStation).Time = time;
+    }
+
+    private List<Station> closedlist = new List<Station>();
+
+    private String FindFlightPath(Station start, Station destination)
+    {
+        if (start == destination) return String.Empty;
+
+        List<Station>path = new List<Station>();
+        Station current = FindNext(start, destination);
+        closedlist.Clear();
+        while(current != destination) {
+            path.Add(current);
+            current = FindNext(current, destination);
+        }
+        String flightPath = String.Empty;
+        path.ForEach((Station s) => flightPath += s.FlightIn.ToString());
+
+        return flightPath;
+    }
+
+    private class DistanceNode {
+        public double Weight;
+        public Station Target;
+    }
+
+    private Station FindNext(Station current, Station destination) {
+        closedlist.Add(current);
+        List<DistanceNode> distances = new List<DistanceNode>();
+        Stations.ForEach(
+            delegate (Station s) {
+                if (closedlist.Contains(s)) return;
+                DistanceNode n = new DistanceNode();
+                n.Target = s;
+                double a = current.GetWeightForStation(s).Time;
+                double b = s.GetWeightForStation(destination).Time;
+                n.Weight = a + b;
+                distances.Add(n);
+            }
+        );
+
+        if (distances.Count == 0) return destination;
+
+        distances.Sort(
+            delegate (DistanceNode a, DistanceNode b) {
+                if (a.Weight == b.Weight) return 0;
+                return a.Weight < b.Weight ? -1 : 1;
+            }
+        );
+        return distances[0].Target;
     }
 }
 
@@ -301,20 +359,8 @@ public void Save()
 public void InitProgram() 
 {
     Sys.LoadConfig();
-
-    string fallbackWaypointGps = Sys.Config("FallBackFlightPathWaypoint").Value;
-
-    if (fallbackWaypointGps == string.Empty) {
-        Echo("Fallback waypoint needed. Run `SetFallback <GPS>`");
-        return;
-    }
-    MyWaypointInfo fallbackWaypoint = MyWaypointInfo.Empty;
-    if(MBOS.ParseGPS(fallbackWaypointGps, out fallbackWaypoint) == false) {
-        Echo("Wrong fallback waypoint. Run `SetFallback <GPS>`");
-        return;
-    }
-
-    FlightController = new FlightControl(Sys, fallbackWaypoint);
+    
+    FlightController = new FlightControl(Sys);
     FlightController.SendReady();
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
@@ -362,8 +408,8 @@ public void UpdateInfo()
         + "\n"
         + "Stations: " + FlightController.Stations.Count.ToString() + "\n"
         + "Hangars: " + FlightController.Hangars.Count.ToString() + "\n"
-        + "Fallback FP: " + FlightController.FallBackFlightPathWaypoint.ToString() + "\n"
-        + "Flight paths: " + FlightController.FlightPaths.Count.ToString() + "\n"
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
@@ -382,51 +428,18 @@ public void ReadArgument(String args)
         case "ReceiveMessage":
             if (allArgs != string.Empty) FlightController.ExecuteMessage(allArgs);
             break;
-        case "Message":
-            FlightController.ExecuteMessage(allArgs);
-            break;
         case "Reset":
             if(FlightController == null) break;
             FlightController.Hangars.Clear();
             FlightController.Stations.Clear();
             FlightController.SendReady();
             break;
-        case "SetFallback":
-            MyWaypointInfo gps = MyWaypointInfo.Empty;
-            if(MBOS.ParseGPS(allArgs, out gps)) {
-                Sys.Config("FallBackFlightPathWaypoint").Value = gps.ToString();
-                FlightController = null;
-                Echo("Fallback flightpath set over: " + gps.ToString());
-            } else {
-                Echo("Error by parsing GPS coordinate");
-            }
-            break;
-        case "RegisterFlightPath":
-            long startGrid = long.Parse(parts[0]);
-            long targetGrid = long.Parse(parts[1]);
-            parts.RemoveRange(0, 2);
-            allArgs = String.Join(" ", parts.ToArray());
-            if(FlightController.RegisterFlightPath(startGrid, targetGrid, allArgs)) {
-                Echo("Flight path successful registered.");
-            } else {
-                Echo("Errro: Flight path does not contain waypoints.");
-            }
-            break;
-
-         /*case "SetLCD":
-            IMyTextPanel lcd = Sys.GetBlockByName(allArgs) as IMyTextPanel;
-            if(lcd != null) {
-                FlightController.Screen = lcd;
-            }
-            break;*/
         default:
             Echo(
                 "Available Commands: \n"
-                +"  * RegisterFlightPath <Start-GridID> <Target-GridID> <GPS>[...]\n"
-                +"  * SetFallback <GPS>\n"
-                +"  * SetLCD <Name of Panel>\n"
-                +"  * SetLCD <Name of Panel>\n"
-                );
+                +"  * ReceiveMessage <Simulated Network Message>\n"
+                +"  * Reset\n"
+            );
             break;
     }
 }
@@ -779,7 +792,7 @@ public class MBOS {
 
         protected IMyUnicastListener Listener;
         protected MBOS Sys;
-        protected List<String> Traffic = new List<String>();
+        public List<String> Traffic = new List<String>();
         public NetBuffer Buffer = new NetBuffer();
 
         public UniTransceiver(MBOS sys, List<String> traffic)

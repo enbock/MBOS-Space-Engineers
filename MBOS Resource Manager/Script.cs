@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.7.0";
+const String VERSION = "1.7.1";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -512,20 +512,17 @@ public class ResourceManager {
         );
         if(foundConsumer.Count == 0) {
             MBOS.Sys.Traffic.Add("ERROR: Update of resource without existant consumer for " + unit + " at " + waypoint);
-            ReRegisterAllStations();
             return;
         }
         List<DeliverMission> foundMissions = Missions.FindAll((DeliverMission missionItem) => missionItem.ConsumerWaypoint.Coords.Equals(foundConsumer[0].Waypoint.Coords, 0.01));
         if (foundMissions.Count == 0) {
             MBOS.Sys.Traffic.Add("ERROR: Delivery ignored! No mission found for " + unit + " at " + waypoint);
-            ReRegisterAllStations();
             return;
         } 
         foundConsumer[0].Delivered += quantity;
         if (foundConsumer[0].Delivered > foundConsumer[0].Requested) {
             MBOS.Sys.Traffic.Add("ERROR: To much delivering detected. Correcting it.");
             foundConsumer[0].Delivered = foundConsumer[0].Requested;
-            ReRegisterAllStations();
         }
     }
 
@@ -547,6 +544,7 @@ public class ResourceManager {
         if(consumer.Delivered < mission.Quantity) {
             // Öhm...Drone lost cargo?
             MBOS.Sys.Traffic.Add("ERROR: Completed mission does not deliver! " + mission.Unit + " at " + mission.ConsumerWaypoint);
+            ReRegisterAllStations();
             return;
         }
         consumer.Requested -= mission.Quantity;
@@ -625,7 +623,7 @@ public void Main(String argument, UpdateType updateSource)
 
     List<ResourceManager.Consumer> requestingConsumers = Manager.Consumers.FindAll((ResourceManager.Consumer consumerItem) => (consumerItem.Requested - consumerItem.Delivered) > 0);
     
-    Runtime.UpdateFrequency = UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update10;
 }
 
 public void UpdateInfo()
@@ -639,6 +637,8 @@ public void UpdateInfo()
         + "Registered Producers: " + Manager.Producers.Count.ToString() + "\n"
         + "Registered Consumers: " + Manager.Consumers.Count.ToString() + "\n"
         + "Delivery Missions: " + Manager.Missions.Count.ToString() + "\n"
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
@@ -671,6 +671,7 @@ public void ReadArgument(String args)
             break;
         case "ResetMissions":
             Manager.Missions.Clear();
+            Manager.Producers.ForEach((ResourceManager.Producer producer) => producer.Reserved = 0);
             Echo("Missions cleared.");
             Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
@@ -881,6 +882,7 @@ public class MBOS {
         protected String LastSendData = "";
         protected List<String> Traffic = new List<String>();
         public NetBuffer Buffer = new NetBuffer();
+        private int SendCount = 0;
 
         public WorldTransceiver(MBOS sys, List<String> traffic) {
             Sys = sys;
@@ -905,7 +907,11 @@ public class MBOS {
             while((message = DownloadMessage()) != string.Empty) {
                 Buffer.Input.Add(message);
             }
-            UploadMessage();
+            SendCount++;
+            if (SendCount > 10) {
+                UploadMessage();
+                SendCount = 0;
+            }
 
             if (Buffer.Input.Count == 0) return String.Empty;
             
@@ -1033,6 +1039,7 @@ public class MBOS {
         protected MBOS Sys;
         protected List<String> Traffic = new List<String>();
         public NetBuffer Buffer = new NetBuffer();
+        private int SendCount = 0;
 
         public UniTransceiver(MBOS sys, List<String> traffic)
         {
@@ -1049,7 +1056,11 @@ public class MBOS {
             while((message = DownloadMessage()) != string.Empty) {
                 Buffer.Input.Add(message);
             }
-            UploadMessage();
+            SendCount++;
+            if (SendCount > 10) {
+                UploadMessage();
+                SendCount = 0;
+            }
 
             if (Buffer.Input.Count == 0) return String.Empty;
             

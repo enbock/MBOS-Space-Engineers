@@ -3,9 +3,14 @@
 ## Working idea
 The Flight Control produce flight pathes and request hangar to send drone.
 
+Is is a self learning algorithm. Just create MBOS Station terminals. The Drone will measure the flight time and report to this FlightControl.
+The algorithm will find a better way, after the drones were flying some rounds.
+
+The Flight Control received missions from the Resource Manager and passing the found flight pathes to the Drone Hangar.
+The Drone Hangar will load the missions into the drones.
+
 ## Commands
 * `SetFallback <GPS>` - Fallback flightpath point.
-* `RegisterFlightPath <Start-GridID> <Target-GridID> <GPS>[...]` - Create/Update new flight path. GPS must be written without space.
 
 ## Radio Transmissions
 [B] == Broad cast    
@@ -21,3 +26,5 @@ The Flight Control produce flight pathes and request hangar to send drone.
 * [U] to Hangar> `RequestTransport|<Mission-ID>|<Drone Type>|<FlightPath>`
 ### Complete mission
 * [B] from Hangar< `MissionCompleted|<Mission-ID>`
+### Flight times
+* [B]< `FlightTime|<GPS from>|<GPS to>|<time>`

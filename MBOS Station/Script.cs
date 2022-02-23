@@ -1,5 +1,5 @@
 const String NAME = "Station";
-const String VERSION = "1.1.0";
+const String VERSION = "1.2.1";
 const String DATA_FORMAT = "1";
 
 public class Station
@@ -12,20 +12,20 @@ public class Station
         FlightIn = flightIn;
     }
 
-    public virtual void RegisterFlightControl() {
+    public void RegisterAtNetwrok() {
         Sys.BroadCastTransceiver.SendMessage(
             "RegisterStation|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
         );
     }
 
-    public virtual void ExecuteMessage(string message) {
+    public void ExecuteMessage(string message) {
         List<String> parts = new List<String>(message.Split('|'));
         String command = parts[0];
         parts.RemoveAt(0);
 
         switch(command) {
-            case "FlightControlReady":
-                RegisterFlightControl();
+            case "RequestRenewStationRegister":
+                RegisterAtNetwrok();
                 break;
         }
     }
@@ -68,7 +68,7 @@ public void InitProgram()
     }
 
     StationSystem = new Station(Sys, flightIn);
-    StationSystem.RegisterFlightControl();
+    StationSystem.RegisterAtNetwrok();
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -86,8 +86,20 @@ public void Main(String argument, UpdateType updateSource)
         return;
     }
 
+    CheckMessages();
     Save();
     UpdateInfo();
+}
+
+public void CheckMessages()
+{
+    String message = string.Empty;
+    if((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
+        StationSystem.ExecuteMessage(message);
+    }
+    if((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
+        StationSystem.ExecuteMessage(message);
+    }
 }
 
 public void UpdateInfo()
@@ -97,6 +109,8 @@ public void UpdateInfo()
         + "[" + NAME + " v" + VERSION + "]\n"
         + "\n"
         + "Station GridID: " + Sys.GridId + "\n"
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
@@ -113,13 +127,6 @@ public void ReadArgument(String args)
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
         case "ReceiveMessage":
-            String message = string.Empty;
-            while((message = Sys.BroadCastTransceiver.ReceiveMessage()) != string.Empty) {
-                StationSystem.ExecuteMessage(message);
-            }
-            while((message = Sys.Transceiver.ReceiveMessage()) != string.Empty) {
-                StationSystem.ExecuteMessage(message);
-            }
             break;
         case "FlightIn":
             MyWaypointInfo gps = MyWaypointInfo.Empty;

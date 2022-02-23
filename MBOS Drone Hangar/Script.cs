@@ -1,46 +1,12 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "2.1.0";
+const String VERSION = "3.0.1";
 const String DATA_FORMAT = "2";
 
-/**
-
-Drone Hangar Manager.
-
-* Connectors must be named with "Pod".
-
-*/
-
-public class Station
+public class DroneHangar
 {
     public MBOS Sys;
     public MyWaypointInfo FlightIn;
 
-    public Station(MBOS sys, MyWaypointInfo flightIn) {
-        Sys = sys;
-        FlightIn = flightIn;
-    }
-
-    public virtual void RegisterFlightControl() {
-        Sys.BroadCastTransceiver.SendMessage(
-            "RegisterStation|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
-        );
-    }
-
-    public virtual void ExecuteMessage(string message) {
-        List<String> parts = new List<String>(message.Split('|'));
-        String command = parts[0];
-        parts.RemoveAt(0);
-
-        switch(command) {
-            case "FlightControlReady":
-                RegisterFlightControl();
-                break;
-        }
-    }
-}
-
-public class DroneHangar : Station
-{
     public class Pod 
     {
         public IMyShipMergeBlock Connector;
@@ -109,7 +75,10 @@ public class DroneHangar : Station
     public long WaitBetweenStarts = 1L; // in seconds
     protected DateTime LastStart = DateTime.Now;
 
-    public DroneHangar(MBOS sys, MyWaypointInfo flightIn) : base(sys, flightIn) {
+    public DroneHangar(MBOS sys, MyWaypointInfo flightIn) {
+        Sys = sys;
+        FlightIn = flightIn;
+
         Init();
         Load();
     }
@@ -119,8 +88,7 @@ public class DroneHangar : Station
         BroadCastEmptySlots();
     }
 
-    public override void ExecuteMessage(String message) {
-        base.ExecuteMessage(message);
+    public void ExecuteMessage(String message) {
         List<String> parts = new List<String>(message.Split('|'));
         String command = parts[0];
         parts.RemoveAt(0);
@@ -135,10 +103,13 @@ public class DroneHangar : Station
             case "ResetOrders":
                 Missions.Clear();
                 break;
+            case "RequestRenewStationRegister":
+                RegisterAtNetwrok();
+                break;
         }
     }
 
-    public override void RegisterFlightControl() {
+    public void RegisterAtNetwrok() {
         Sys.BroadCastTransceiver.SendMessage(
             "RegisterHangar|" + Sys.EntityId + "|" + Sys.GridId + "|" + FlightIn.ToString()
         );
@@ -364,7 +335,7 @@ public void InitProgram()
     }
 
     Hangar = new DroneHangar(Sys, flightIn);
-    Hangar.RegisterFlightControl();
+    Hangar.RegisterAtNetwrok();
 
     Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
@@ -397,7 +368,7 @@ public void Main(String argument, UpdateType updateSource)
     Hangar.CheckMissions();
     Save();
     UpdateInfo();
-    Runtime.UpdateFrequency = UpdateFrequency.Update100;
+    Runtime.UpdateFrequency = UpdateFrequency.Update10;
 }
 
 
@@ -415,6 +386,8 @@ public void UpdateInfo()
         + "Queued Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Pod == null).Count.ToString() + "\n"
         + "Assigned Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Pod != null && mission.Started == false).Count.ToString() + "\n"
         + "Flying Missions: " + Hangar.Missions.FindAll((DroneHangar.DeliveryMission mission) => mission.Started == true).Count.ToString() + "\n"
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;

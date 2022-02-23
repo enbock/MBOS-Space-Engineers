@@ -1,5 +1,5 @@
 const String NAME = "Consumer";
-const String VERSION = "1.5.0";
+const String VERSION = "1.5.1";
 const String DATA_FORMAT = "1";
 
 /*
@@ -387,6 +387,8 @@ public void UpdateInfo()
         + "\n"
         + "Registered Resource Units: " + ConsumerManager.Resources.Count.ToString() + "\n"
         + neededResourceOutput
+        + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
