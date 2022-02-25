@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.2.2";
+const String VERSION = "4.2.5";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -88,6 +88,8 @@ public class TransportDrone
     private String StartedAt = String.Empty;
     private String StartedLastTarget = String.Empty;
     private DateTime StartTime = DateTime.Now;
+    private DateTime BatterRechargeAt = DateTime.Now;
+    private bool wantRecharge = false;
 
     protected DateTime Mark = DateTime.Now;
     protected DateTime EnableConnectorAt = DateTime.Now;
@@ -220,7 +222,11 @@ public class TransportDrone
         if(!IsHomeConnected() || !Connector.IsConnected) {
             Batteries.SetAuto();
         }
-        if (IsHomeConnected() && Mode == "Flight") {
+        if(wantRecharge && BatterRechargeAt > DateTime.Now) {
+            Batteries.SetReacharge();
+            wantRecharge = false;
+        }
+        if (IsHomeConnected() && (Mode == "Flight" || Mode == "FlightToDock" || Mode == "Direct")) {
             MBOS.Sys.Traffic.Add("[CF]: Fallback disconnect.");
             Disconnect();
         }
@@ -282,7 +288,7 @@ public class TransportDrone
         } else NoFlightDetectCount = 0;
         */
 
-        MBOS.Sys.Traffic.Add("[CF]: Next Mode:" + Mode +"(HDC:"+(HasToDeliverCargo?"Y":"N")+" C:"+(Connector.IsConnected?"Y":"N")+")");
+        //MBOS.Sys.Traffic.Add("[CF]: Next Mode:" + Mode +"(HDC:"+(HasToDeliverCargo?"Y":"N")+" C:"+(Connector.IsConnected?"Y":"N")+")");
 
         switch(Mode) {
             case "Direct": // Finish direct flight
@@ -319,7 +325,9 @@ public class TransportDrone
             case "Dock":
                 Mode = "Mark";
                 if (IsHomeConnected()) {
-                    Batteries.SetReacharge();
+                    MBOS.Sys.Traffic.Add("[CF]: Battery to recharge");
+                    wantRecharge = true;
+                    BatterRechargeAt = DateTime.Now.AddSeconds(5);
                     Lights.TurnOff();
                     SetupThrusters(false);
                     HasToDeliverCargo = false;
@@ -434,6 +442,7 @@ public class TransportDrone
     public void Disconnect() {
         if (Hangar == 0L) return; // No flight without Hangar :P
         Connector.Enabled = false;
+        Batteries.SetAuto();
         EnableConnectorAt = DateTime.Now.AddSeconds(10);
     }
 
