@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.7.1";
+const String VERSION = "1.8.1";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -243,7 +243,7 @@ public class ResourceManager {
         });
 
         foreach(KeyValuePair<String, ResourceInfo> pair in info) {
-            output += "  * " + pair.Key + ": " + pair.Value.Stock.ToString() + "(" + pair.Value.Reserved.ToString() + ")\n";
+            output += "  * " + pair.Key + ": " + pair.Value.Stock.ToString() + " (" + pair.Value.Reserved.ToString() + ")\n";
         }
 
         output += "\nRequired Resources:\n------------------------------\n";
@@ -270,7 +270,7 @@ public class ResourceManager {
 
         foreach(KeyValuePair<String, ResourceInfo> pair in info) {
             output += "  * " + pair.Key + ": " + pair.Value.Requested.ToString() 
-                + "(On way: " + pair.Value.InDelivery.ToString() 
+                + " (On way: " + pair.Value.InDelivery.ToString() 
                 + "; Received: " + pair.Value.Delivered.ToString() 
                 + "; Missions: " + pair.Value.Missions.ToString() 
                 + ")\n";
@@ -570,7 +570,7 @@ ResourceManager Manager;
 
 public Program()
 {
-    Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
+    Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo, Runtime);
 
     InitProgram();
     UpdateInfo();
@@ -638,7 +638,7 @@ public void UpdateInfo()
         + "Registered Consumers: " + Manager.Consumers.Count.ToString() + "\n"
         + "Delivery Missions: " + Manager.Missions.Count.ToString() + "\n"
         + "UniCast: " + Sys.Transceiver.Buffer.Input.Count.ToString() + " | "+ Sys.Transceiver.Buffer.Output.Count.ToString() +"\n"
-        + "BoradCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
+        + "BroadCast: " + Sys.BroadCastTransceiver.Buffer.Input.Count.ToString() + " | "+ Sys.BroadCastTransceiver.Buffer.Output.Count.ToString() +"\n"
         + "----------------------------------------\n"
         + Sys.Transceiver.DebugTraffic()
     ;
@@ -667,6 +667,10 @@ public void ReadArgument(String args)
             Sys.Config("Producers").Value = String.Empty;
             Sys.Config("Consumers").Value = String.Empty;
             Sys.Config("Missions").Value = String.Empty;
+            Sys.Transceiver.Buffer.Input.Clear();
+            Sys.Transceiver.Buffer.Output.Clear();
+            Sys.BroadCastTransceiver.Buffer.Input.Clear();
+            Sys.BroadCastTransceiver.Buffer.Output.Clear();
             Sys.BroadCastTransceiver.SendMessage("ResetOrders");
             break;
         case "ResetMissions":
@@ -727,6 +731,7 @@ public class MBOS {
     public Action<string> Echo;
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
+    public IMyGridProgramRuntimeInfo Runtime;
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -737,11 +742,12 @@ public class MBOS {
     protected bool ConfigLoaded = false;
     public List<String> Traffic = new List<String>();
 
-    public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
+    public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo, IMyGridProgramRuntimeInfo runtime) {
         Me = me;
         GridTerminalSystem = gridTerminalSystem;
         IGC = igc;
         Echo = echo;
+        Runtime = runtime;
         
         ComputerDisplay = Me.GetSurface(0);
         ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
@@ -883,12 +889,13 @@ public class MBOS {
         protected List<String> Traffic = new List<String>();
         public NetBuffer Buffer = new NetBuffer();
         private int SendCount = 0;
+        private int SendInterval;
 
         public WorldTransceiver(MBOS sys, List<String> traffic) {
             Sys = sys;
             Traffic = traffic;
             Channel = "world";
-
+            UpdateSendInterval();
             ListenerAware();
         }
 
@@ -907,8 +914,9 @@ public class MBOS {
             while((message = DownloadMessage()) != string.Empty) {
                 Buffer.Input.Add(message);
             }
+            UpdateSendInterval();
             SendCount++;
-            if (SendCount > 10) {
+            if (SendCount > SendInterval) {
                 UploadMessage();
                 SendCount = 0;
             }
@@ -920,6 +928,10 @@ public class MBOS {
             Traffic.Add("[B+]< " + message);
 
             return message;
+        }
+
+        private void UpdateSendInterval() {
+            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
         }
 
         private String DownloadMessage() {
@@ -986,6 +998,7 @@ public class MBOS {
         {
             public long Receiver = 0L;
             public String Data = String.Empty; 
+            public bool ReceiveMustBeInGrid = false;
 
             public SendMessageInfo(long receiver, String data)
             {
@@ -1040,11 +1053,14 @@ public class MBOS {
         protected List<String> Traffic = new List<String>();
         public NetBuffer Buffer = new NetBuffer();
         private int SendCount = 0;
+        private int SendInterval;
 
         public UniTransceiver(MBOS sys, List<String> traffic)
         {
             Sys = sys;
             Traffic = traffic;
+            UpdateSendInterval();
+
             Listener = Sys.IGC.UnicastListener;
             Listener.SetMessageCallback("ReceiveMessage");
         }
@@ -1056,8 +1072,9 @@ public class MBOS {
             while((message = DownloadMessage()) != string.Empty) {
                 Buffer.Input.Add(message);
             }
+            UpdateSendInterval();
             SendCount++;
-            if (SendCount > 10) {
+            if (SendCount > SendInterval) {
                 UploadMessage();
                 SendCount = 0;
             }
@@ -1069,6 +1086,10 @@ public class MBOS {
             Traffic.Add("[U+]< " + message);
 
             return message;
+        }
+        
+        private void UpdateSendInterval() {
+            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
         }
 
         private String DownloadMessage()
@@ -1083,9 +1104,11 @@ public class MBOS {
             return incoming;
         }
 
-        public void SendMessage(long target, String data) 
+        public void SendMessage(long target, String data, bool receiveMustBeInGrid = false) 
         {
-            Buffer.Output.Add(new SendMessageInfo(target, data));
+            SendMessageInfo info = new SendMessageInfo(target, data);
+            info.ReceiveMustBeInGrid = receiveMustBeInGrid;
+            Buffer.Output.Add(info);
             Traffic.Add("[U+]> " + data);
         }
 
@@ -1094,6 +1117,12 @@ public class MBOS {
             if (Buffer.Output.Count == 0) return;
             SendMessageInfo info = Buffer.Output[0];
             Buffer.Output.RemoveAt(0);
+
+            if (info.ReceiveMustBeInGrid && Sys.GridTerminalSystem.GetBlockWithId(info.Receiver) == null) {
+                Traffic.Add("[U<]> " + info.Data);
+                Buffer.Output.Add(info);
+                return;
+            }
 
             Traffic.Add("[U_]> " + info.Data);
             Sys.IGC.SendUnicastMessage<string>(info.Receiver, "whisper", info.Data);

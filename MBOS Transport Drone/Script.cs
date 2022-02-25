@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.1.1";
+const String VERSION = "4.2.2";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -180,7 +180,7 @@ public class TransportDrone
     }
 
     public bool IsHomeConnected() {
-        if (!Connector.IsConnected) {
+        if (Connector.Enabled == false || Connector.IsConnected == false) {
             return false;
         }
 
@@ -220,16 +220,17 @@ public class TransportDrone
         if(!IsHomeConnected() || !Connector.IsConnected) {
             Batteries.SetAuto();
         }
-
+        if (IsHomeConnected() && Mode == "Flight") {
+            MBOS.Sys.Traffic.Add("[CF]: Fallback disconnect.");
+            Disconnect();
+        }
 
         Vector3D offset = CalculateConnectorOffset();
         LastDistance = Distance;
         Distance = Vector3D.Distance(RemoteControl.GetPosition() - offset, Target);
-        //double traveled = Vector3D.Distance(RemoteControl.GetPosition() - offset, StartPoint);
 
         if (Target.Equals(Vector3D.Zero)) {
             Distance = 0;
-            //traveled = 0;
         }
 
         bool withAvoidance = Mode != "Direct" || (Mode == "Direct" && Distance > 60.0);
@@ -281,7 +282,6 @@ public class TransportDrone
         } else NoFlightDetectCount = 0;
         */
 
-
         MBOS.Sys.Traffic.Add("[CF]: Next Mode:" + Mode +"(HDC:"+(HasToDeliverCargo?"Y":"N")+" C:"+(Connector.IsConnected?"Y":"N")+")");
 
         switch(Mode) {
@@ -312,6 +312,8 @@ public class TransportDrone
             case "None":
                 if (IsHomeConnected() == false) {
                     GoHome();
+                } else {
+                    MBOS.Sys.Runtime.UpdateFrequency = UpdateFrequency.None;
                 }
                 break;
             case "Dock":
@@ -337,6 +339,7 @@ public class TransportDrone
                     StartedAt = String.Empty;
                     StartedLastTarget = String.Empty;
                     RecordFlight = false;
+                    MBOS.Sys.Runtime.UpdateFrequency = UpdateFrequency.None;
                 } else {
                     if (!HasToDeliverCargo) {
                         if(Connector.IsConnected) {
@@ -387,7 +390,6 @@ public class TransportDrone
                 }
                 break;
         }
-
     }
 
     protected void StartingFlight(MyWaypointInfo waypoint)
@@ -596,8 +598,9 @@ MBOS Sys;
 
 public Program()
 {
-    Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo);
+    Sys = new MBOS(Me, GridTerminalSystem, IGC, Echo, Runtime);
 
+    Runtime.UpdateFrequency = UpdateFrequency.Update10;
     InitProgram();
 }
 
@@ -689,7 +692,6 @@ public void InitProgram()
         Drone.GoHome();
     }
 
-    Runtime.UpdateFrequency = UpdateFrequency.Update100;
     Echo("Program initialized.");
 }
 
@@ -709,10 +711,8 @@ public void Main(String argument, UpdateType updateSource)
     Save();
     UpdateInfo();
 
-    if (Drone.Mode != "None") {
+    if (Drone.Mode != "None" || !Drone.IsHomeConnected()) {
         Runtime.UpdateFrequency = UpdateFrequency.Update10;
-    } else {
-        Runtime.UpdateFrequency = UpdateFrequency.Update100;
     }
 }
 
@@ -847,6 +847,7 @@ public class MBOS {
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
     public List<String> Traffic = new List<String>();
+    public IMyGridProgramRuntimeInfo Runtime;
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -856,11 +857,12 @@ public class MBOS {
 
     protected bool ConfigLoaded = false;
 
-    public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo) {
+    public MBOS(IMyProgrammableBlock me, IMyGridTerminalSystem gridTerminalSystem, IMyIntergridCommunicationSystem igc, Action<string> echo, IMyGridProgramRuntimeInfo runtime) {
         Me = me;
         GridTerminalSystem = gridTerminalSystem;
         IGC = igc;
         Echo = echo;
+        Runtime = runtime;
         
         ComputerDisplay = Me.GetSurface(0);
         ComputerDisplay.ContentType = ContentType.TEXT_AND_IMAGE;
