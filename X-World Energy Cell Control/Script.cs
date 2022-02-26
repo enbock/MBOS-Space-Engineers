@@ -27,10 +27,9 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "2.0.0";
+const String VERSION = "2.0.3";
 
 IMyTextSurface textSurface;
-List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
 IMyShipMergeBlock Loader;
 IMyShipConnector Power;
 float MinCharge = 10f;
@@ -42,14 +41,6 @@ int MaxCounter = 2;
 
 public Program()
 {
-    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
-    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
-
-    foreach (IMyBatteryBlock battery in batteries) {
-        if (battery.CubeGrid != Me.CubeGrid) continue;
-        Batteries.Add(battery);
-    }
-
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
     GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
         connectors,
@@ -68,7 +59,9 @@ public Program()
 
     textSurface = Me.GetSurface(0);
 
-    if(Loader != null && Power != null && Batteries.Count > 0) {
+    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid == Me.CubeGrid);
+    if(Loader != null && Power != null && batteries.Count > 0) {
         textSurface.ContentType = ContentType.TEXT_AND_IMAGE;
         textSurface.ClearImagesFromSelection();
         textSurface.ChangeInterval = 0;
@@ -126,7 +119,9 @@ public void Main(string argument, UpdateType updateSource)
 
     ActionCounter++;
     
-    foreach (IMyBatteryBlock battery in Batteries) {
+    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid == Me.CubeGrid);
+    foreach (IMyBatteryBlock battery in batteries) {
         max += battery.MaxStoredPower;
         current += battery.CurrentStoredPower;
     }
@@ -239,7 +234,11 @@ public void Main(string argument, UpdateType updateSource)
 
 public void SetBatteryMode(ChargeMode mode) 
 {
-    foreach (IMyBatteryBlock battery in Batteries) {
-        battery.ChargeMode = mode;
-    }
+    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid == Me.CubeGrid);
+    batteries.ForEach(
+        delegate (IMyBatteryBlock battery) {
+            battery.ChargeMode = mode;
+        }
+    );
 }

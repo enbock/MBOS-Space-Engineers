@@ -14,10 +14,9 @@ The stations:
 * Stations has to fill or empty the cargo.
 
 */
-const String VERSION = "2.0.0";
+const String VERSION = "2.0.3";
 
 IMyTextSurface textSurface;
-List<IMyBatteryBlock> Batteries = new List<IMyBatteryBlock>();
 IMyShipMergeBlock Loader;
 IMyShipConnector Cargo;
 float PullStrength = 0.003f;
@@ -26,14 +25,6 @@ ChargeMode lastBatteryMode = ChargeMode.Recharge;
 
 public Program()
 {
-    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
-    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries);
-
-    foreach (IMyBatteryBlock battery in batteries) {
-        if (battery.CubeGrid != Me.CubeGrid) continue;
-        Batteries.Add(battery);
-    }
-
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
     GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
         connectors,
@@ -52,7 +43,9 @@ public Program()
 
     textSurface = Me.GetSurface(0);
 
-    if(Loader != null && Cargo != null && Batteries.Count > 0) {
+    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid == Me.CubeGrid);
+    if(Loader != null && Cargo != null && batteries.Count > 0) {
         textSurface.ContentType = ContentType.TEXT_AND_IMAGE;
         textSurface.ClearImagesFromSelection();
         textSurface.ChangeInterval = 0;
@@ -101,7 +94,7 @@ public void Main(string argument, UpdateType updateSource)
     bool isCargoInRange = Cargo.Status == MyShipConnectorStatus.Connectable;
     bool isLoaderConnected = Loader.IsConnected;
 
-    textSurface.WriteText("1CU\n", false);
+    textSurface.WriteText("SCU\n", false);
 
     if (isCargoInRange || isLoaderConnected) {
         if (lastBatteryMode == ChargeMode.Recharge) {
@@ -182,8 +175,12 @@ public void Main(string argument, UpdateType updateSource)
 
 public void SetBatteryMode(ChargeMode mode) 
 {
-    foreach (IMyBatteryBlock battery in Batteries) {
-        battery.ChargeMode = mode;
-        lastBatteryMode = mode;
-    }
+    List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+    GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid == Me.CubeGrid);
+    batteries.ForEach(
+        delegate (IMyBatteryBlock battery) {
+            battery.ChargeMode = mode;
+        }
+    );
+    lastBatteryMode = mode;
 }

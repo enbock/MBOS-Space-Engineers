@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.2.5";
+const String VERSION = "4.2.7";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -627,6 +627,7 @@ public void Save()
         Sys.Config("Homepath").Value = Drone.Homepath;
         Sys.Config("CurrenPath").Value = Drone.CurrentPath.ToString();
         Sys.Config("HasToDeliverCargo").Value = Drone.HasToDeliverCargo ? "Y": "N";
+        Sys.Config("Target").Value = Drone.Target.ToString();
     }
     
     Sys.SaveConfig();
@@ -673,8 +674,8 @@ public void InitProgram()
     Drone = new TransportDrone(
         remoteControl, 
         Sys,
-        new Batteries(GridTerminalSystem, Me.CubeGrid.EntityId),
-        new Lights(GridTerminalSystem, Me.CubeGrid.EntityId),
+        new Batteries(GridTerminalSystem, Sys),
+        new Lights(GridTerminalSystem, Sys),
         cargoConnector,
         hangar,
         homepath,
@@ -693,6 +694,7 @@ public void InitProgram()
             Drone.AddFlightPath(pathData);
         }
         Drone.Mode = Sys.Config("Mode").ValueWithDefault(Drone.Mode);
+        Vector3D.TryParse(Sys.Config("Target").Value, out Drone.Target);
     }
     
     if (hangar == 0L) {
@@ -1079,49 +1081,61 @@ public class MBOS {
 }
 
 public class Batteries {
-    protected List<IMyBatteryBlock> BatteryList = new List<IMyBatteryBlock>();
+    private MBOS Sys;
     
-    public Batteries(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
-        BatteryList.Clear();
-        gridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(BatteryList, (IMyBatteryBlock block) => block.CubeGrid.EntityId == gridId);
+    public Batteries(IMyGridTerminalSystem gridTerminalSystem, MBOS sys) {
+        Sys = sys;
     }
 
     public void SetReacharge() 
     {
-        foreach(IMyBatteryBlock battery in BatteryList) {
+        foreach(IMyBatteryBlock battery in GetBatteries()) {
             battery.ChargeMode = ChargeMode.Recharge;
         }
     }
 
     public void SetAuto() 
     {
-        foreach(IMyBatteryBlock battery in BatteryList) {
+        foreach(IMyBatteryBlock battery in GetBatteries()) {
             battery.ChargeMode = ChargeMode.Auto;
         }
+    }
+
+    private List<IMyBatteryBlock> GetBatteries()
+    {
+        List<IMyBatteryBlock> batteries = new List<IMyBatteryBlock>();
+        Sys.GridTerminalSystem.GetBlocksOfType<IMyBatteryBlock>(batteries, (IMyBatteryBlock battery) => battery.CubeGrid.EntityId == Sys.GridId);
+        return batteries;
     }
 }
 
 public class Lights {
-    protected List<IMyLightingBlock> LightList = new List<IMyLightingBlock>();
+    private MBOS Sys;
     
-    public Lights(IMyGridTerminalSystem gridTerminalSystem, long gridId) {
-        LightList.Clear();
-        gridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(LightList, (IMyLightingBlock block) => block.CubeGrid.EntityId == gridId);
+    public Lights(IMyGridTerminalSystem gridTerminalSystem, MBOS sys) {
+        Sys = sys;
     }
 
     public void TurnOn() 
     {
-        foreach(IMyLightingBlock light in LightList) {
+        foreach(IMyLightingBlock light in GetLights()) {
             light.Enabled = true;
         }
     }
 
     public void TurnOff(bool reflectorOnly = false) 
     {
-        foreach(IMyLightingBlock light in LightList) {
+        foreach(IMyLightingBlock light in GetLights()) {
             if (reflectorOnly == false || light is IMyReflectorLight) {
                 light.Enabled = false;
             }
         }
+    }
+
+    private List<IMyLightingBlock> GetLights()
+    {
+        List<IMyLightingBlock> lights = new List<IMyLightingBlock>();
+        Sys.GridTerminalSystem.GetBlocksOfType<IMyLightingBlock>(lights, (IMyLightingBlock light) => light.CubeGrid.EntityId == Sys.GridId);
+        return lights;
     }
 }
