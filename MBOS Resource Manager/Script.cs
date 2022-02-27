@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.9.0";
+const String VERSION = "1.9.1";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -401,7 +401,14 @@ public class ResourceManager {
                 (DeliverMission mission) => mission.Unit == unit && mission.ConsumerWaypoint.Coords.Equals(waypoint.Coords, 0.01)
             );
             int inDelivery = 0;
+            Consumers.ForEach(
+                delegate(Consumer consumer) { 
+                    if (consumer.Unit != unit) return;
+                    inDelivery -= consumer.Delivered;
+                }
+            );
             foundMissions.ForEach((DeliverMission mission) => inDelivery += mission.Quantity);
+            inDelivery = inDelivery < 0 ? 0 : inDelivery;
             if (inDelivery >= quantity) {
                 MBOS.Sys.Traffic.Add("Requested resource " + unit + " already in delivery.");
                 return;
