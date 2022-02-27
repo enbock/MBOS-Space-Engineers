@@ -1,5 +1,5 @@
 const String NAME = "Resource Manager";
-const String VERSION = "1.8.1";
+const String VERSION = "1.9.0";
 const String DATA_FORMAT = "1";
 
 public enum UnitType
@@ -208,6 +208,9 @@ public class ResourceManager {
             case "RemoveProducer":
                 RemoveProducer(parts);
                 break;
+            case "RemoveConsumer":
+                RemoveConsumer(parts);
+                break;
         }
     }
 
@@ -320,7 +323,8 @@ public class ResourceManager {
         );
     }
 
-    protected void RemoveProducer(List<String> parts) {
+    protected void RemoveProducer(List<String> parts)
+    {
         String unit = parts[0];
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
         MBOS.ParseGPS(parts[1], out waypoint);
@@ -329,9 +333,22 @@ public class ResourceManager {
         );
         foundProducers.ForEach(
             delegate(Producer producer) {
-                // TODO: Do we need mission removal?
-
                 Producers.Remove(producer);
+            }
+        );
+    }
+
+    private void RemoveConsumer(List<String> parts) 
+    {
+        String unit = parts[0];
+        MyWaypointInfo waypoint = MyWaypointInfo.Empty;
+        MBOS.ParseGPS(parts[1], out waypoint);
+        List<Consumer> foundConsumers = Consumers.FindAll(
+            (Consumer item) => item.Unit == unit && item.Waypoint.Coords.Equals(waypoint.Coords, 0.01)
+        );
+        foundConsumers.ForEach(
+            delegate(Consumer consumer) {
+                Consumers.Remove(consumer);
             }
         );
     }
@@ -818,14 +835,14 @@ public class MBOS {
         BroadCastTransceiver.Buffer = new WorldTransceiver.NetBuffer(Config("WorldTransceiver").Value);
     } 
 
-    public void LoadConfig(String data, List<ConfigValue> configList)
+    public void LoadConfig(String data, List<ConfigValue> configList, bool ignoreHead = false)
     {   
         if (data.Length > 0) { 
             String[] configs = data.Split('\n'); 
             
-            if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
+            if(!ignoreHead && configs[0] != "FORMAT v" + DATA_FORMAT) return;
             
-            for(int i = 1; i < configs.Length; i++) {
+            for(int i = (ignoreHead ? 0 : 1); i < configs.Length; i++) {
                 String line = configs[i]; 
                 if (line.Length > 0) {
                     String[] parts = line.Split('=');
@@ -835,7 +852,7 @@ public class MBOS {
                 }
             } 
         } 
-    } 
+    }
 
     public void SaveConfig()
     {

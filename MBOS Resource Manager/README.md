@@ -33,6 +33,8 @@ Resource is a free text indentifier. The producer must provide slot to "fill" re
 ### Register consumer
 * [B] C-Station> `RegisterConsumer|<Resource Name>|<Station-EntityID>|<Station-GridID>|<Waypoint>`
 * [U] Manager< `ConsumerRegistered|<Resource Name>|<Manager-EntityID>|<Waypoint>`
+### Remove consumer
+* [U] Manager< `RemoveConsumer|<Resource Name>|<Waypoint>`
 ### Repeat registrations
 * [B] Manager> `ReRegisterProducer`
 * [B] Manager> `ReRegisterConsumer`

@@ -1,13 +1,22 @@
 const String NAME = "Producer";
-const String VERSION = "2.2.0";
+const String VERSION = "3.0.0";
 const String DATA_FORMAT = "2";
 
 /*
-    Register examples:
-        Register ChargedEnergyCell Battery 1 Power Charger #1
-        Register EmptyEnergyCell Single 1 Charge Connector #1
-        Register Ore/Iron Container 8000 IronOreSupplyConnector#1
-        Register EmptyContainer Single 1 IronOreDeliverConnector#1
+Connector CustomData examples:
+
+Consume=Ore/Ice Container 10000
+Produce=EmptyContainer Single 1
+
+Consume=EmptyContainer Single 1
+Produce=Ore/Iron Container 8000
+LimitBy=4000 Ingot/Iron  <-- Do not request Iron Ore if more than 4000 Iron Ingot exisiting.
+
+Consume=Component/SteelPlate Container 1
+Produce=EmptyContainer Single 1
+
+Consume=ChargedEnergyCell Battery 1
+Produce=EmptyEnergyCell Single 1
 */
 
 public enum UnitType
@@ -194,33 +203,17 @@ public class Manager
 
     public Manager(MBOS system) {
         System = system;
-        Load();
+        ScanProducers();
     }
 
-    public bool RegisterResource(List<string> parts) {
+    public bool RegisterResource(List<string> parts, IMyShipConnector connector) {
         String unit = parts[0];
         UnitType type = (UnitType) Enum.Parse(typeof(UnitType), parts[1]);
         double volumePerUnit = double.Parse(parts[2]);
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
-        parts.RemoveRange(0, 3);
 
-        String nameAndGpsValue = String.Join(" ", parts.ToArray());
-        List<String> nameAndGpsParts = new List<String>(
-             nameAndGpsValue.Split(new string[] {" GPS:"}, StringSplitOptions.RemoveEmptyEntries)
-        );
-
-        IMyShipConnector connector = System.GetBlockByName(nameAndGpsParts[0]) as IMyShipConnector;
-        if (connector == null) {
-            if (connector == null) {
-                return false;
-            }
-        }
         Vector3D dockAt = connector.CubeGrid.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
-
-        if (nameAndGpsParts.Count > 1 && MBOS.ParseGPS("GPS:" + nameAndGpsParts[1], out waypoint) == false) {
-            return false;
-        }
 
         List<Resource> foundResources = Resources.FindAll(
             (Resource resource) => resource.Unit == unit 
@@ -309,6 +302,13 @@ public class Manager
         });
     }
 
+    public void RemoveAllProducers()
+    {
+        List<Resource> res = Resources;
+        Resources = new List<Resource>();
+        res.ForEach((Resource r) => TransmitResourceRemoval(r));
+    }
+
     protected void ReRegisterProducer() {
         Resources.ForEach(
             delegate(Resource resource) {
@@ -352,15 +352,39 @@ public class Manager
         return false;
     }
 
-    protected void Load() {
+    public void ScanProducers() {
+        // Deregister known producers
         List<String> list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
-                Resource newResource = new Resource(System, line);
-                Resources.Add(newResource);
-                SendUpdate(newResource);
+                Resource res = new Resource(System, line);
+                TransmitResourceRemoval(res);
             }
         });
+
+        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+        System.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+            connectors, 
+            (IMyShipConnector c) => c.IsWorking && c.CubeGrid.EntityId == System.GridId && c.CustomData.IndexOf("Produce=") != -1
+        );
+
+        connectors.ForEach(
+            delegate (IMyShipConnector c) {
+                List<MBOS.ConfigValue> configList = new List<MBOS.ConfigValue>();
+                MBOS.Sys.LoadConfig(c.CustomData, configList, true);
+
+                System.Echo("Scan "+c.CustomName+"...");
+                
+                // Produce=Ore/Iron Container 8000
+                String line = MBOS.Sys.Config("Produce", configList).Value.Trim();
+                if (line == String.Empty) return;
+
+                List<String> parts = new List<String>(line.Split(' '));
+                if (parts.Count != 3) return;
+                
+                RegisterResource(parts, c);
+            }
+        );
     }
 
     protected void SendUpdate(Resource resource) {
@@ -509,6 +533,7 @@ public void UpdateInfo()
         }
     );
     foreach(KeyValuePair<string, int> pair in stockResources) {
+        if (pair.Value <= 0) continue;
         stockResourceOutput += "    * " + pair.Key + ": " + pair.Value.ToString() + "(" + stockReservations[pair.Key].ToString() + ")\n";
     }
 
@@ -535,12 +560,13 @@ public void ReadArgument(String args)
     parts.RemoveAt(0);
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
-        case "Register":
-            if(ProducerManager.RegisterResource(parts)) {
-                Echo("New resources registered.");
-            } else {
-                Echo("Registration failed.");
-            }
+        case "ScanProducers":
+            ProducerManager.ScanProducers();
+            Echo("Scan complete.");
+            break;
+        case "RemoveAllProducers":
+            ProducerManager.RemoveAllProducers();
+            Echo("Producers removed.");
             break;
         case "ClearReservations":
             ProducerManager.Resources.ForEach((Manager.Resource resource) => resource.Reservation = 0);
@@ -553,8 +579,9 @@ public void ReadArgument(String args)
         default:
             Echo(
                 "Available Commands: \n"
-                + " * Register <Resource Name> {Single|Conatiner|Liquid} <Volume> <Connector> [<GPS>]\n"
-                + " * ClearReservations"
+                + " * ScanProducers\n"
+                + " * ClearReservations\n"
+                + " * RemoveAllProducers\n"
             );
             break;
     }
@@ -690,14 +717,14 @@ public class MBOS {
         BroadCastTransceiver.Buffer = new WorldTransceiver.NetBuffer(Config("WorldTransceiver").Value);
     } 
 
-    public void LoadConfig(String data, List<ConfigValue> configList)
+    public void LoadConfig(String data, List<ConfigValue> configList, bool ignoreHead = false)
     {   
         if (data.Length > 0) { 
             String[] configs = data.Split('\n'); 
             
-            if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
+            if(!ignoreHead && configs[0] != "FORMAT v" + DATA_FORMAT) return;
             
-            for(int i = 1; i < configs.Length; i++) {
+            for(int i = (ignoreHead ? 0 : 1); i < configs.Length; i++) {
                 String line = configs[i]; 
                 if (line.Length > 0) {
                     String[] parts = line.Split('=');
@@ -707,7 +734,7 @@ public class MBOS {
                 }
             } 
         } 
-    } 
+    }
 
     public void SaveConfig()
     {

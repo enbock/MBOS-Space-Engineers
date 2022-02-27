@@ -10,7 +10,7 @@ Expected is / Setup:
 * Depend of Energy Cell weight adjust magnetic streng and `PullStreng` variable (0.3% is similar to 0.003f `PullStreng`)
 
 The definitions:
-* Any connector, connected on the Power-Connector, with empty CustomData are Energy Consuming Stations.
+* Any connector, connected on the Power-Connector, with CustomData that contains `Consume=ChargedEnergyCell` are Energy Consuming Stations.
 * Any connector, connected on the Power-Connector, with any CustomData set are Energy Charging Stations.
 * Any merge block, connected on the Loader-Merge-Block, are Transporters
 
@@ -27,7 +27,7 @@ Workflow:
 
 Attantion: The batteries need thrusters. Otherwise drone can not transport them safely.
 */
-const String VERSION = "2.0.3";
+const String VERSION = "2.1.1";
 
 IMyTextSurface textSurface;
 IMyShipMergeBlock Loader;
@@ -38,8 +38,14 @@ bool LastWasConsumerConnected = false;
 bool WaitForAway = false;
 int ActionCounter = 0;
 int MaxCounter = 2;
+bool initComplete = false;
 
 public Program()
+{
+    InitProgram();
+}
+
+public void InitProgram()
 {
     List<IMyShipConnector> connectors = new List<IMyShipConnector>();
     GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
@@ -69,11 +75,12 @@ public Program()
         Power.Enabled = true;
 
         textSurface.WriteText("*****", false);
-
-        Runtime.UpdateFrequency = UpdateFrequency.Update100;
+        initComplete = true;
     } else {
         Echo("Program start failed.");
     }
+
+    Runtime.UpdateFrequency = UpdateFrequency.Update100;
 }
 
 public void Save()
@@ -105,10 +112,14 @@ public void DisconnectLoader()
 
 public void Main(string argument, UpdateType updateSource)
 {
+    if(!initComplete) {
+        InitProgram();
+        return;
+    }
     if (Mark >= DateTime.Now) return;
     if (LoadEnableAt < DateTime.Now && Loader.Enabled == false) Loader.Enabled = true;
     if (DisableThrustersAt < DateTime.Now && !Loader.IsConnected) EnableThrusters(false);
-    if(powerDisconnectNext) {
+    if (powerDisconnectNext) {
         powerDisconnectNext = false;
         Power.Disconnect();
     }
@@ -133,7 +144,7 @@ public void Main(string argument, UpdateType updateSource)
     bool isLoaderConnected = Loader.IsConnected;
 
     if (isPowerConnected) { 
-        LastWasConsumerConnected = Power.OtherConnector.CustomData == "";
+        LastWasConsumerConnected = Power.OtherConnector.CustomData.IndexOf("Produce=EmptyEnergyCell") > 0;
     }
 
     textSurface.WriteText(charge.ToString() + "\n", false);

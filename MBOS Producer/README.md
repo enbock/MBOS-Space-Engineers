@@ -8,11 +8,24 @@ A typical factory has Consumer and Producer.
 ## Radio Transmissions
 See description of Rsource Manager.
 
-## Single Unit Behavior
-Comman: `SingleUpdateStockWhen <BeforeState:{Connected|Connectable|Unconnected}> <NowState:{Connected|Connectable|Unconnected}>`
-The check of unit with type `Single` can be modified by this command. Its define the state when "produced" is happend.     
-* `Connected` - Produced is when the port connected is
-* `Connectable` - Produced when port is connectable. (eg. for `EmptyEnergyCells` or all movable and self disconnecting elements whcih need to be lifted)
-* `Unconnected` - Produced when nothing in range of connector ... 
+## Setup through connectors (Version 3.*)
+Configuration of the Consumption will now pass through the CustomData of the connector.
 
-Info: Be aware that misstyping of these settings let crash the script (press just the _recompile_ button in case).
+Format:
+```
+Produce=<Name of product> <Type of cargo [Single|Battery|Container]> <Amount of product to load>
+```
+
+Limit-Format:
+```
+LimitBy=<Amount of product> <Name of product>[, ...]
+```
+Notice: Limits are global and need only once to be defined. (One connector with limit, will limit other connector with same resource too.)
+
+Examples:
+```
+Produce=ChargedEnergyCell Battery 1
+Produce=EmptyEnergyCell Single 1
+Produce=Ore/Iron Container 8000
+Produce=EmptyContainer Single 1
+```

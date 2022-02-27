@@ -574,14 +574,14 @@ public class MBOS {
         BroadCastTransceiver.Buffer = new WorldTransceiver.NetBuffer(Config("WorldTransceiver").Value);
     } 
 
-    public void LoadConfig(String data, List<ConfigValue> configList)
+    public void LoadConfig(String data, List<ConfigValue> configList, bool ignoreHead = false)
     {   
         if (data.Length > 0) { 
             String[] configs = data.Split('\n'); 
             
-            if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
+            if(!ignoreHead && configs[0] != "FORMAT v" + DATA_FORMAT) return;
             
-            for(int i = 1; i < configs.Length; i++) {
+            for(int i = (ignoreHead ? 0 : 1); i < configs.Length; i++) {
                 String line = configs[i]; 
                 if (line.Length > 0) {
                     String[] parts = line.Split('=');

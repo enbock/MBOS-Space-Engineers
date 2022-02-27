@@ -1,15 +1,22 @@
 const String NAME = "Consumer";
-const String VERSION = "1.7.0";
+const String VERSION = "2.0.0";
 const String DATA_FORMAT = "1";
 
 /*
-    Register examples:
-        Register EmptyEnergyCell Single 1 Power Charger #1
-        Register ChargedEnergyCell Battery 1 Charge Connector #1
-        Register Ore/Iron Container 8000 IronOreDeliverConnector#1
-        Register EmptyContainer Single 1 IronOreSupplyConnector#1
+Connector CustomData examples:
 
-        Limit Ore/Iron 4000 Ingot/Iron  <-- Do not request Iron Ore if more than 4000 Iron Ingot exisiting.
+Consume=Ore/Ice Container 10000
+Produce=EmptyContainer Single 1
+
+Consume=EmptyContainer Single 1
+Produce=Ore/Iron Container 8000
+LimitBy=4000 Ingot/Iron  <-- Do not request Iron Ore if more than 4000 Iron Ingot exisiting.
+
+Consume=Component/SteelPlate Container 1
+Produce=EmptyContainer Single 1
+
+Consume=ChargedEnergyCell Battery 1
+Produce=EmptyEnergyCell Single 1
 */
 
 public enum UnitType
@@ -88,11 +95,11 @@ public class Manager
                     Stock = isConnectorInUse ? 1 : 0;
                     break;
                 case UnitType.Container:
-                    List<IMyTerminalBlock> cargo = new List<IMyTerminalBlock>();
+                    List<IMyCargoContainer> cargo = new List<IMyCargoContainer>();
 
                     MBOS.Sys.GridTerminalSystem.GetBlocksOfType<IMyCargoContainer>(
                         cargo,
-                        (IMyTerminalBlock block) => block.CubeGrid.EntityId == MBOS.Sys.GridId
+                        (IMyCargoContainer block) => block.CubeGrid.EntityId == MBOS.Sys.GridId
                     );
 
                     Stock = (
@@ -104,7 +111,7 @@ public class Manager
             }
         }
 
-        protected bool IsLimitReached(String unit, List<IMyTerminalBlock> cargo, List<Limit> limits) {
+        protected bool IsLimitReached(String unit, List<IMyCargoContainer> cargo, List<Limit> limits) {
             bool limitReached = true;
             bool limitFound = false;
             limits.ForEach(
@@ -117,11 +124,10 @@ public class Manager
             return limitFound && limitReached;
         }
 
-        protected int CargoAmount(String unit, List<IMyTerminalBlock> cargo) {
+        protected int CargoAmount(String unit, List<IMyCargoContainer> cargo) {
             int current = 0;
             
-            cargo.ForEach(delegate(IMyTerminalBlock block) {
-                IMyCargoContainer container = block as IMyCargoContainer;
+            cargo.ForEach(delegate(IMyCargoContainer container) {
                 IMyInventory inventory = container.GetInventory();
                 current += (int) Math.Floor((float) inventory.GetItemAmount(MyDefinitionId.Parse("MyObjectBuilder_" + unit)));
             });
@@ -163,22 +169,15 @@ public class Manager
 
     public Manager(MBOS system) {
         System = system;
-        Load();
+        ScanConsumers();
     }
 
-    public bool RegisterResource(List<string> parts) {
+    public void RegisterResource(List<string> parts, IMyShipConnector connector) {
         String unit = parts[0];
         UnitType type = (UnitType) Enum.Parse(typeof(UnitType), parts[1]);
         int requiredStock = int.Parse(parts[2]);
+
         MyWaypointInfo waypoint = MyWaypointInfo.Empty;
-        parts.RemoveRange(0, 3);
-
-        String name = String.Join(" ", parts.ToArray());
-
-        IMyShipConnector connector = System.GetBlockByName(name) as IMyShipConnector;
-        if (connector == null) {
-            return false;
-        }
         Vector3D dockAt = connector.GetPosition();
         waypoint = new MyWaypointInfo(unit + " Target", dockAt);
 
@@ -196,20 +195,29 @@ public class Manager
             newResource = new Resource(unit, type, requiredStock, connector);
             Resources.Add(newResource);
         }
-
+        newResource.StockHasChanged(Limits);
         BroadCastResource(newResource);
-
-        return true;
     }
 
     public void Save() {
         List<String> list = new List<String>();
         Resources.ForEach((Resource resource) => list.Add(resource.ToString()));
         System.Config("Resources").Value = String.Join("|", list.ToArray());
-        
-        list.Clear();
-        Limits.ForEach((Limit limit) => list.Add(limit.ToString()));
-        System.Config("Limits").Value = String.Join("|", list.ToArray());
+    }
+
+    public void RemoveAllConsumers()
+    {
+        List<Resource> res = Resources;
+        Resources = new List<Resource>();
+        res.ForEach((Resource r) => TransmitResourceRemoval(r));
+    }
+
+    protected void TransmitResourceRemoval(Resource resource) {
+        System.BroadCastTransceiver.SendMessage(
+            "RemoveConsumer|" + resource.Unit 
+            + "|" + resource.Waypoint.ToString()
+        );
+        resource.RegisteredByManager = 0L;
     }
 
     public void ExecuteMessage(String message) {
@@ -276,23 +284,54 @@ public class Manager
         );
     }
 
-    protected void Load() {
-        List<String> list = new List<String>(System.Config("Limits").Value.Split('|'));
+    public void ScanConsumers() {
+        // Deregister known consumers
+        List<string> list = new List<String>(System.Config("Resources").Value.Split('|'));
         list.ForEach(delegate(String line) {
             if(line != String.Empty) {
-                Limit newLimit = new Limit(line);
-                Limits.Add(newLimit);
+                Resource res = new Resource(System, line);
+                TransmitResourceRemoval(res);
             }
         });
 
-        list = new List<String>(System.Config("Resources").Value.Split('|'));
-        list.ForEach(delegate(String line) {
-            if(line != String.Empty) {
-                Resource newResource = new Resource(System, line);
-                Resources.Add(newResource);
-                BroadCastResource(newResource);
+        List<IMyShipConnector> connectors = new List<IMyShipConnector>();
+        System.GridTerminalSystem.GetBlocksOfType<IMyShipConnector>(
+            connectors, 
+            (IMyShipConnector c) => c.IsWorking && c.CubeGrid.EntityId == System.GridId && c.CustomData.IndexOf("Consume=") != -1
+        );
+
+        connectors.ForEach(
+            delegate (IMyShipConnector c) {
+                List<MBOS.ConfigValue> configList = new List<MBOS.ConfigValue>();
+                MBOS.Sys.LoadConfig(c.CustomData, configList, true);
+
+                System.Echo("Scan "+c.CustomName+"...");
+                
+                // Consume=Ore/Iron Container 8000
+                String line = MBOS.Sys.Config("Consume", configList).Value.Trim();
+                if (line == String.Empty) return;
+
+                List<String> parts = new List<String>(line.Split(' '));
+                if (parts.Count != 3) return;
+
+                // LimitBy=4000 Ingot/Iron
+                String limitLine = MBOS.Sys.Config("LimitBy", configList).Value.Trim();
+                List<String> limits = new List<String>(limitLine.Split(','));
+                limits.ForEach(
+                    delegate (String limit) {
+                        if (limit.Trim() == String.Empty) return;
+
+                        List<String> limitParts = new List<String>(limit.Trim().Split(' '));
+                        if(limitParts.Count != 2 || Limits.FindAll((Limit l) => l.RequestedUnit == parts[0] && l.ExistingUnit == limitParts[1]).Count > 0)  return;
+
+                        Limit newLimit = new Limit(parts[0], int.Parse(limitParts[0]), limitParts[1]);
+                        Limits.Add(newLimit);
+                    }
+                );
+                
+                RegisterResource(parts, c);
             }
-        });
+        );
     }
 
     protected void BroadCastResource(Resource resource) {
@@ -371,7 +410,7 @@ public void UpdateInfo()
     Dictionary<string, int> neededResources = new Dictionary<string, int>();
     ConsumerManager.Resources.ForEach(
         delegate(Manager.Resource resource) {
-            if(resource.Stock >= resource.RequiredStock) return;
+            if(1 - resource.Stock <= 0) return;
             if(neededResources.ContainsKey(resource.Unit) == false) {
                 neededResources.Add(resource.Unit, 0);
             }
@@ -409,12 +448,9 @@ public void ReadArgument(String args)
     parts.RemoveAt(0);
     String allArgs = String.Join(" ", parts.ToArray());
     switch (command) {
-        case "Register":
-            if(ConsumerManager.RegisterResource(parts)) {
-                Echo("New resources registered.");
-            } else {
-                Echo("Registration failed.");
-            }
+        case "ScanConsumers":
+            ConsumerManager.ScanConsumers();
+            Echo("Scan complete.");
             break;
         case "Reset":
             ConsumerManager.Resources.Clear();
@@ -426,12 +462,17 @@ public void ReadArgument(String args)
         case "ReceiveMessage":
             Echo("Received radio data.");
             break;
+        case "RemoveAllConsumers":
+            ConsumerManager.RemoveAllConsumers();
+            Echo("Consumers removed.");
+            break;
         default:
             Echo(
                 "Available Commands: \n"
-                + " * Register <Resource Name> {Single|Conatiner|Liquid} <Required Amount> <Connector> [<GPS>]\n"
+                + " * ScanConsumers\n"
                 + " * Limit <Requested Resource> <Max Amount> <Resource in Container>\n"
                 + " * Reset"
+                + " * RemoveAllConsumers"
             );
             break;
     }
@@ -567,14 +608,14 @@ public class MBOS {
         BroadCastTransceiver.Buffer = new WorldTransceiver.NetBuffer(Config("WorldTransceiver").Value);
     } 
 
-    public void LoadConfig(String data, List<ConfigValue> configList)
+    public void LoadConfig(String data, List<ConfigValue> configList, bool ignoreHead = false)
     {   
         if (data.Length > 0) { 
             String[] configs = data.Split('\n'); 
             
-            if(configs[0] != "FORMAT v" + DATA_FORMAT) return;
+            if(!ignoreHead && configs[0] != "FORMAT v" + DATA_FORMAT) return;
             
-            for(int i = 1; i < configs.Length; i++) {
+            for(int i = (ignoreHead ? 0 : 1); i < configs.Length; i++) {
                 String line = configs[i]; 
                 if (line.Length > 0) {
                     String[] parts = line.Split('=');
