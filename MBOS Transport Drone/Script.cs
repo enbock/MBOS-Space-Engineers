@@ -1,5 +1,5 @@
 const String NAME = "Transport Drone";
-const String VERSION = "4.2.9";
+const String VERSION = "4.2.10";
 const String DATA_FORMAT = "3";
 const String TRANSPORT_TYPE = "transport";
 
@@ -438,7 +438,7 @@ public class TransportDrone
         Connector.Enabled = false;
         Batteries.SetAuto();
         SetupThrusters(true);
-        EnableConnectorAt = DateTime.Now.AddSeconds(15);
+        EnableConnectorAt = DateTime.Now.AddSeconds(20);
     }
 
     protected void StartFlight() 
@@ -760,6 +760,7 @@ public void UpdateInfo()
         + "Next Target: " + Drone.Target.ToString() + (Drone.Connector != null ? "(Offset: " + Drone.CalculateConnectorOffset().ToString() + ")" : "") + "\n"
         + "             " + Drone.TargetInfo + "\n"
         + "Distance: " + Drone.Distance.ToString() + "\n"
+        + "HasToDeliverCargo: " + (Drone.HasToDeliverCargo ? "Yes" : "No") + "\n"
         + "Pathes to flight: " + Drone.FlightPaths.Count + "\n"
         + "Record: " + (Drone.RecordFlight ? (Drone.FlightRecord.Count > 0 ? "Last: "+Drone.FlightRecord[Drone.FlightRecord.Count - 1].Time + "s": "Recording...") : "No Record active") + "\n"
         + "----------------------------------------\n"

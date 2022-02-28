@@ -1,5 +1,5 @@
 const String NAME = "Drone Hangar";
-const String VERSION = "3.1.2";
+const String VERSION = "3.2.0";
 const String DATA_FORMAT = "2";
 
 public class DroneHangar
@@ -9,18 +9,21 @@ public class DroneHangar
 
     public class Pod 
     {
+        public long ConnectorId;
+        public String Name;
+        public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
+        public long Drone = 0L;
+        public string Type = "none";
+        public DateTime LastSeen = DateTime.Now;
+
         public IMyShipMergeBlock Connector {
             get {
                 return MBOS.Sys.GridTerminalSystem.GetBlockWithId(ConnectorId) as IMyShipMergeBlock; 
             }
         }
-        public long ConnectorId;
-        public List<MBOS.ConfigValue> ConfigList = new List<MBOS.ConfigValue>();
-        public long Drone = 0L;
-        public string Type = "none";
-
         public Pod(IMyShipMergeBlock connector) {
             ConnectorId = connector.EntityId;
+            Name = connector.CustomName;
 
             LoadConfig();
         }
@@ -221,6 +224,7 @@ public class DroneHangar
         CheckHomeCommingMissions();
         CheckStartingMissions();
         SearchAssingableMissions();
+        UpdateLastSeenDrones();
     }
 
     public void CheckLostPods()
@@ -318,6 +322,26 @@ public class DroneHangar
 
                 MBOS.Sys.Transceiver.SendMessage(mission.Drone, "AddFlightPath|" + mission.FlightPath);
                 MBOS.Sys.Transceiver.SendMessage(mission.Drone, "StartDrone");
+            }
+        );
+    }
+
+    private void UpdateLastSeenDrones()
+    {
+        Pods.ForEach(
+            delegate (Pod pod) {
+                if (pod.Connector == null || !pod.Connector.IsWorking) {
+                    Sys.Echo("Pod damaged: " + pod.Name);
+                    return;
+                }
+                if (pod.Connector.CustomData == String.Empty) {
+                    return;
+                }
+                if (pod.Connector.IsConnected) {
+                    pod.LastSeen = DateTime.Now;
+                    return;
+                }
+                Sys.Echo(pod.Name+" last seen "+ (Math.Round(DateTime.Now.Subtract(pod.LastSeen).TotalSeconds).ToString()) +"s ");
             }
         );
     }
@@ -528,6 +552,7 @@ public class MBOS {
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
     public IMyGridProgramRuntimeInfo Runtime;
+    public int UpdatesBetweenMessages = 10;
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -631,7 +656,7 @@ public class MBOS {
                 }
             } 
         } 
-    } 
+    }
 
     public void SaveConfig()
     {
@@ -727,7 +752,11 @@ public class MBOS {
         }
 
         private void UpdateSendInterval() {
-            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
+            SendInterval = 
+                Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 
+                    ? Sys.UpdatesBetweenMessages 
+                    : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? Sys.UpdatesBetweenMessages / 10 : Sys.UpdatesBetweenMessages * 10)
+            ;
         }
 
         private String DownloadMessage() {
@@ -885,7 +914,11 @@ public class MBOS {
         }
         
         private void UpdateSendInterval() {
-            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
+            SendInterval = 
+                Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 
+                    ? Sys.UpdatesBetweenMessages 
+                    : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? Sys.UpdatesBetweenMessages / 10 : Sys.UpdatesBetweenMessages * 10)
+            ;
         }
 
         private String DownloadMessage()

@@ -488,6 +488,7 @@ public class MBOS {
     public UniTransceiver Transceiver;
     public WorldTransceiver BroadCastTransceiver;
     public IMyGridProgramRuntimeInfo Runtime;
+    public int UpdatesBetweenMessages = 10;
 
     public long GridId { get { return Me.CubeGrid.EntityId; }}
     public long EntityId { get { return Me.EntityId; }}
@@ -591,7 +592,7 @@ public class MBOS {
                 }
             } 
         } 
-    } 
+    }
 
     public void SaveConfig()
     {
@@ -687,7 +688,11 @@ public class MBOS {
         }
 
         private void UpdateSendInterval() {
-            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
+            SendInterval = 
+                Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 
+                    ? Sys.UpdatesBetweenMessages 
+                    : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? Sys.UpdatesBetweenMessages / 10 : Sys.UpdatesBetweenMessages * 10)
+            ;
         }
 
         private String DownloadMessage() {
@@ -845,7 +850,11 @@ public class MBOS {
         }
         
         private void UpdateSendInterval() {
-            SendInterval = Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 ? 10 : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? 0 : 100);
+            SendInterval = 
+                Sys.Runtime.UpdateFrequency == UpdateFrequency.Update10 
+                    ? Sys.UpdatesBetweenMessages 
+                    : (Sys.Runtime.UpdateFrequency == UpdateFrequency.Update100 ? Sys.UpdatesBetweenMessages / 10 : Sys.UpdatesBetweenMessages * 10)
+            ;
         }
 
         private String DownloadMessage()
